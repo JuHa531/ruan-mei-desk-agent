@@ -128,3 +128,5 @@ python .\app\agent_server.py --no-browser --workdir "$env:USERPROFILE\Documents\
 仓库不包含模型权重、语音样本、大型背景视频、日志或个人运行数据。
 QQ 音乐和部分桌面操作依赖本机应用及其界面能力；失败时梅梅会明确说明，
 不会假装操作成功。
+
+**本应用及数据库仅用于学习与参考，切勿用于商务用途，后果自负。**
