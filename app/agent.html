@@ -1,0 +1,2766 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>阮梅 · 本地 Agent</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#07100e">
+<meta name="mobile-web-app-capable" content="yes">
+<link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%2399f6e4'/><stop offset='.55' stop-color='%232dd4bf'/><stop offset='1' stop-color='%230891b2'/></linearGradient></defs><g fill='url(%23g)'><ellipse cx='50' cy='26' rx='13' ry='19'/><ellipse cx='50' cy='26' rx='13' ry='19' transform='rotate(72 50 50)'/><ellipse cx='50' cy='26' rx='13' ry='19' transform='rotate(144 50 50)'/><ellipse cx='50' cy='26' rx='13' ry='19' transform='rotate(216 50 50)'/><ellipse cx='50' cy='26' rx='13' ry='19' transform='rotate(288 50 50)'/></g><circle cx='50' cy='50' r='8' fill='%23f0fdfa'/><circle cx='50' cy='50' r='3' fill='%2314b8a6'/></svg>">
+<style>
+  :root{
+    --bg:#0b0d12; --panel:rgba(14,17,23,.78); --panel2:rgba(20,24,32,.72);
+    --line:rgba(255,255,255,.09); --ink:#eef2f8; --muted:#aab4c4;
+    --accent:#7aa2f7; --me:rgba(58,86,140,.42); --her:rgba(24,30,41,.80);
+    --ok:#22c55e; --bad:#ef4444;
+    /* 侧栏“融入背景”用的四个值，由界面里的滑块实时改写 */
+    --side-a0:.30; --side-a1:.86; --side-blur:11.5px; --side-line:.02;
+    --side-scrim:.7; --side-on:1;
+    /* 顶栏 / 底部输入区的不透明度，在外观面板里实时改写 */
+    --head-a:.78; --foot-a:.78;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);overflow:hidden;
+       font:15px/1.72 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+
+  /* ---------- 背景层：图片或视频 ---------- */
+  #bglayer{position:fixed;inset:0;z-index:0;overflow:hidden;background:#0b0d12}
+  #bglayer>*{width:100%;height:100%;object-fit:cover;display:block;
+             transform:scale(1.04);filter:saturate(.95)}
+  #scrim{position:fixed;inset:0;z-index:1;
+         background:radial-gradient(120% 120% at 20% 0%,rgba(10,12,18,.62),rgba(8,10,14,.88) 60%,rgba(6,8,11,.96));}
+
+  /* ---------- 骨架 ---------- */
+  #app{position:relative;z-index:2;display:flex;height:100vh}
+  aside{width:266px;flex:0 0 266px;display:flex;flex-direction:column;
+        position:relative;overflow:hidden;
+        border-right:1px solid rgba(255,255,255,var(--side-line));
+        background:var(--panel)}
+  /* 侧栏里那张和页面完全对齐的背景图（左边缘因此和主区无缝接上） */
+  .sidebg{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;
+          opacity:var(--side-on);transition:opacity .25s}
+  .sidebg>*{position:absolute;left:0;top:0;width:100vw;height:100vh;
+            object-fit:cover;transform:scale(1.04);filter:saturate(.95)}
+  .sidebg::after{content:'';position:absolute;left:0;top:0;width:100vw;height:100vh;
+                 opacity:var(--side-scrim);
+                 background:radial-gradient(120% 120% at 20% 0%,
+                            rgba(10,12,18,.62),rgba(8,10,14,.88) 60%,rgba(6,8,11,.96))}
+  /* 面板色：从左边几乎透明，向右逐渐变实 */
+  .sideveil{position:absolute;inset:0;z-index:1;pointer-events:none;
+            backdrop-filter:blur(var(--side-blur));
+            background:linear-gradient(90deg,
+                       rgba(14,17,23,var(--side-a0)) 0%,
+                       rgba(14,17,23,var(--side-a1)) 88%)}
+  aside>.brand,aside>.newbtn,aside>.sect,aside>#sessions,aside>.sidefoot{
+        position:relative;z-index:2}
+  .brand{display:flex;align-items:center;gap:10px;padding:16px 16px 12px}
+  .avatar{width:34px;height:34px;border-radius:10px;object-fit:cover;
+          background:linear-gradient(135deg,#3b4a6b,#1b2230);display:grid;
+          place-items:center;font-size:18px;flex:0 0 auto}
+  .brand b{font-size:15px;font-weight:650;letter-spacing:.3px;
+           text-shadow:0 1px 4px rgba(4,6,9,.85)}
+  .brand small{display:block;color:var(--muted);font-size:11px;font-weight:400;
+               text-shadow:0 1px 3px rgba(4,6,9,.8)}
+  .newbtn{margin:4px 12px 10px;padding:9px 12px;border-radius:10px;cursor:pointer;
+          border:1px solid var(--line);background:rgba(122,162,247,.14);
+          color:var(--ink);font:inherit;font-size:13.5px;text-align:left}
+  .newbtn:hover{background:rgba(122,162,247,.22)}
+  .sect{padding:6px 16px;color:var(--muted);font-size:11px;letter-spacing:.6px}
+  #sessions{flex:1;overflow-y:auto;padding:0 8px 8px}
+  .sess{display:flex;align-items:center;gap:8px;padding:8px 10px;margin:2px 0;
+        border-radius:9px;cursor:pointer;font-size:13.5px;color:#dae1eb;
+        text-shadow:0 1px 3px rgba(4,6,9,.8)}
+  .sess:hover{background:rgba(255,255,255,.05)}
+  .sess.on{background:rgba(122,162,247,.18);color:#fff}
+  .sess span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sess i{opacity:0;font-style:normal;color:var(--muted);font-size:12px}
+  .sess:hover i{opacity:1}
+  .sidefoot{border-top:1px solid var(--line);padding:10px 16px;font-size:12px;
+            color:var(--muted);display:flex;flex-direction:column;gap:5px;
+            text-shadow:0 1px 3px rgba(4,6,9,.8)}
+  .st{display:flex;align-items:center;gap:7px}
+  .dot{width:7px;height:7px;border-radius:50%;background:#4a5364}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px rgba(34,197,94,.6)}
+  .dot.off{background:var(--bad)}
+
+  main{flex:1;display:flex;flex-direction:column;min-width:0}
+  header{display:flex;align-items:center;gap:12px;padding:12px 22px;
+         border-bottom:1px solid var(--line);
+         background:rgba(14,17,23,var(--head-a));
+         backdrop-filter:blur(16px)}
+  header h1{margin:0;font-size:14px;font-weight:600}
+  header .wd{color:var(--muted);font-size:12px;overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap;max-width:42vw}
+  header .sp{margin-left:auto;display:flex;gap:8px;align-items:center}
+  button{font:inherit;font-size:12.5px;padding:6px 12px;border-radius:9px;
+         border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+         cursor:pointer;backdrop-filter:blur(6px)}
+  button:hover{border-color:rgba(255,255,255,.22)}
+  button.on{background:rgba(122,162,247,.85);border-color:transparent;
+            color:#0b1220;font-weight:600}
+  .menu{display:none}
+  #sideBack{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.55);
+            opacity:0;pointer-events:none;transition:opacity .22s}
+  body.nav-open #sideBack{opacity:1;pointer-events:auto}
+
+  #log{flex:1;overflow-y:auto;padding:26px 22px 8px;scroll-behavior:smooth}
+  .row{display:flex;margin-bottom:18px}
+  .row.right{justify-content:flex-end}
+  .col{max-width:min(780px,86%)}
+  .who{font-size:11.5px;color:var(--muted);margin:0 4px 5px}
+  .who{text-shadow:0 1px 3px rgba(4,6,9,.85)}
+  .row.right .who{text-align:right}
+  .bubble{padding:11px 15px;border-radius:14px;border:1px solid var(--line);
+          background:var(--her);white-space:pre-wrap;word-break:break-word}
+  .row.right .bubble{background:var(--me);border-color:rgba(122,162,247,.28)}
+  .bubble pre{margin:8px 0;padding:10px 12px;border-radius:9px;overflow-x:auto;
+              background:rgba(0,0,0,.45);border:1px solid var(--line);
+              font:12.5px/1.55 Consolas,"Cascadia Mono",monospace;white-space:pre}
+
+  /* ---------- 工具调用卡片 ---------- */
+  .tool{margin:0 0 8px;border:1px solid var(--line);border-radius:11px;
+        background:rgba(12,15,21,.72);overflow:hidden;font-size:13px;
+        backdrop-filter:blur(8px)}
+  .tool .th{display:flex;align-items:center;gap:8px;padding:8px 11px;cursor:pointer}
+  .tool .th b{font-weight:600;color:#9db4e8;font-family:Consolas,monospace;font-size:12.5px}
+  .tool .th code{color:var(--muted);font-size:12px;overflow:hidden;
+                 text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .tool .body{display:none;border-top:1px solid var(--line);padding:9px 12px;
+              background:rgba(0,0,0,.32)}
+  .tool.open .body{display:block}
+  .tool .body pre{margin:0;max-height:280px;overflow:auto;white-space:pre-wrap;
+                  font:12px/1.55 Consolas,"Cascadia Mono",monospace;color:#c3ccdb}
+  .tool .tag{font-size:11px;color:var(--muted)}
+  .tool .spin{color:var(--accent)}
+  .tool.err{border-color:rgba(239,68,68,.45)}
+
+  footer{border-top:1px solid var(--line);
+         background:rgba(14,17,23,var(--foot-a));
+         backdrop-filter:blur(16px);padding:12px 22px 14px}
+  .ctr{display:flex;gap:10px;align-items:flex-end;max-width:1120px;margin:0 auto}
+  textarea{flex:1;resize:none;height:56px;max-height:190px;padding:13px 15px;
+           border-radius:13px;border:1px solid var(--line);
+           background:rgba(10,12,17,.75);color:var(--ink);font:inherit;outline:none}
+  textarea:focus{border-color:rgba(122,162,247,.6)}
+  .send{padding:0 20px;height:44px;border-radius:12px;
+        background:rgba(122,162,247,.88);border-color:transparent;
+        color:#0b1220;font-weight:650}
+  .send:disabled{opacity:.45;cursor:default}
+  .mic{padding:0 16px;height:44px;border-radius:12px;white-space:nowrap}
+  .mic.on{background:#ef4444;border-color:#ef4444;color:#fff;font-weight:600}
+  .opts{max-width:1120px;margin:9px auto 0;display:flex;gap:8px;align-items:center;
+        font-size:12px;color:var(--muted)}
+  .opts .sp{margin-left:auto}
+
+  /* ---------- 外观抽屉 ---------- */
+  #drawer{position:fixed;top:0;right:-420px;width:400px;height:100vh;z-index:20;
+          background:rgba(12,15,21,.94);backdrop-filter:blur(20px);
+          border-left:1px solid var(--line);transition:right .22s ease;
+          padding:20px 22px;overflow-y:auto}
+  #drawer.open{right:0}
+  #drawerBack{position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.45);
+              opacity:0;pointer-events:none;transition:opacity .22s}
+  #drawerBack.open{opacity:1;pointer-events:auto}
+  .dhead{display:flex;align-items:center;justify-content:space-between;
+         position:sticky;top:-20px;background:rgba(12,15,21,.96);
+         margin:-20px -22px 6px;padding:16px 22px 10px;z-index:1}
+  .dhead h2{margin:0;font-size:15px}
+  .dhead button{padding:4px 11px;font-size:13px;line-height:1.2}
+  #drawer h2{margin:0 0 4px;font-size:15px}
+  #drawer p.tip{color:var(--muted);font-size:12px;margin:0 0 16px}
+  #drawer label{display:block;font-size:12.5px;color:var(--muted);margin:16px 0 6px}
+  #drawer select,#drawer input{width:100%;padding:9px 11px;border-radius:9px;
+       border:1px solid var(--line);background:rgba(8,10,14,.8);color:var(--ink);
+       font:inherit;font-size:13px;outline:none}
+  #drawer input:focus,#drawer select:focus{border-color:rgba(122,162,247,.6)}
+  #drawer input[type=range]{padding:0;background:transparent;accent-color:var(--accent);
+                            border:none;height:22px}
+  .rowbtn{display:flex;gap:8px;margin-top:10px}
+  .path{font-family:Consolas,monospace;font-size:11.5px;color:#9fb0c8;
+        background:rgba(0,0,0,.4);padding:8px 10px;border-radius:8px;
+        word-break:break-all;border:1px solid var(--line)}
+  .preview{margin-top:12px;border:1px solid var(--line);border-radius:10px;
+           overflow:hidden;height:120px;background:#000;display:grid;place-items:center}
+  .preview>*{width:100%;height:120px;object-fit:cover}
+  .blossom{display:flex;justify-content:center;margin-bottom:14px;
+           filter:drop-shadow(0 0 18px rgba(45,212,191,.40))}
+  .blossom svg{width:70px;height:70px}
+  .note{font-size:11.5px;color:var(--muted);margin-top:14px;line-height:1.6}
+  .toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);
+         background:rgba(20,24,32,.96);border:1px solid var(--line);
+         padding:10px 18px;border-radius:11px;font-size:13px;z-index:40;
+         opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .saystate{font-size:12px;color:var(--muted);white-space:nowrap}
+  .saystate.live{color:#7ee0b0}
+  .saystate.warn{color:#f5c66b}
+  header select{font:inherit;font-size:12.5px;padding:6px 8px;border-radius:9px;
+                border:1px solid var(--line);background:var(--panel2);color:var(--ink)}
+  /* 空状态：背景图亮部会顶到文字上，所以文字提亮 + 加深色光晕 + 底下补一层柔和的暗场 */
+  #log .empty{position:relative;margin:52px auto;text-align:center;padding:22px 18px}
+  #log .empty::before{content:'';position:absolute;left:-80px;right:-80px;top:-34px;bottom:-34px;
+          border-radius:50%;pointer-events:none;
+          background:radial-gradient(closest-side,rgba(6,8,12,.80),rgba(6,8,12,.45) 62%,rgba(6,8,12,0))}
+  #log .empty>*{position:relative}
+  .opener{font-size:15.5px;line-height:1.85;max-width:560px;margin:0 auto;
+          color:#f2f6fb;
+          text-shadow:0 1px 3px rgba(4,6,9,.9), 0 2px 18px rgba(4,6,9,.85)}
+
+  /* ---------- 手机 / 窄屏：侧栏收成抽屉，顶栏和输入区压缩 ---------- */
+  @media (max-width:820px){
+    #app{height:100dvh}
+    aside{position:fixed;left:0;top:0;bottom:0;width:272px;flex:0 0 272px;
+          z-index:30;transform:translateX(-100%);transition:transform .22s ease;
+          box-shadow:0 0 34px rgba(0,0,0,.62)}
+    body.nav-open aside{transform:none}
+    .menu{display:inline-flex;align-items:center}
+    header{padding:9px 12px;gap:8px;flex-wrap:wrap}
+    header h1{font-size:15px}
+    header .wd{max-width:32vw;font-size:11.5px}
+    header .sp{gap:6px;flex-wrap:wrap;justify-content:flex-end}
+    header button,header select{font-size:12px;padding:6px 9px}
+    #log{padding:16px 12px 6px}
+    .col{max-width:94%}
+    .bubble{padding:10px 13px}
+    footer{padding:10px 12px 12px}
+    .ctr{gap:8px}
+    textarea{height:50px;font-size:15px}
+    .send{padding:0 14px}
+    .mic{padding:0 12px}
+    .opts{font-size:11.5px;flex-wrap:wrap;gap:6px}
+    .opts>span:first-child{display:none}
+    #drawer{width:100%;right:-100%;padding:16px 18px;z-index:40}
+    #drawerBack{z-index:39}
+    .toast{left:12px;right:12px;bottom:14px;transform:none;text-align:center}
+    #log .empty{margin:28px auto}
+    .opener{font-size:15px}
+  }
+</style>
+<style id="ruanmei-theme">
+  /* 阮梅主题：借用参考视频的三栏 Agent 骨架（会话/执行/角色侧栏），
+     配色改成墨绿、青玉、淡梅与少量金色，保留原页面所有功能。 */
+  body.ruanmei-theme{
+    --bg:#07100e; --panel:rgba(7,20,17,.76); --panel2:rgba(12,31,26,.64);
+    --line:rgba(142,229,207,.13); --ink:#eaf7f1; --muted:#9db9ad;
+    --accent:#7ee0c6; --accent2:#d9b8d8; --gold:#d8c38e;
+    --me:rgba(39,104,86,.44); --her:rgba(8,26,21,.74);
+    --ok:#68d9a8; --bad:#e47d8c;
+    background:#07100e; color:var(--ink);
+    font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+  }
+  /* 窗口框架（顶栏/左右栏/浮动按钮）不参与文本选取；
+     聊天内容、输入框和外观抽屉仍可正常复制。 */
+  body.ruanmei-theme #app,
+  body.ruanmei-theme #dragbar,
+  body.ruanmei-theme #wincontrols,
+  body.ruanmei-theme #stickerPop,
+  body.ruanmei-theme #toast{
+    user-select:none;-webkit-user-select:none;-ms-user-select:none;
+  }
+  body.ruanmei-theme #log,
+  body.ruanmei-theme #inp,
+  body.ruanmei-theme #drawer textarea,
+  body.ruanmei-theme #drawer input,
+  body.ruanmei-theme #drawer .path{
+    user-select:text;-webkit-user-select:text;-ms-user-select:text;
+  }
+  body.ruanmei-theme #dragbar{
+    position:fixed;left:0;right:0;top:0;height:18px;z-index:45;
+    background:transparent;
+  }
+  body.ruanmei-theme #wincontrols{
+    position:fixed;top:6px;right:8px;z-index:70;display:flex;gap:2px;
+  }
+  body.ruanmei-theme #wincontrols button{
+    width:28px;height:24px;padding:0;border-radius:7px;
+    border:1px solid rgba(126,224,198,.14);
+    background:rgba(4,14,11,.42);color:var(--ink);
+    font:12px/1 "Segoe UI",sans-serif;backdrop-filter:blur(8px);
+    box-shadow:none;
+  }
+  body.ruanmei-theme #wincontrols button:hover{
+    background:rgba(126,224,198,.16);border-color:rgba(126,224,198,.34);
+  }
+  body.ruanmei-theme #winClose:hover{
+    background:rgba(220,80,95,.88);border-color:transparent;color:#fff;
+  }
+  body.ruanmei-theme #bglayer>*{filter:saturate(.78) brightness(.72) contrast(1.06)}
+  body.ruanmei-theme #scrim{
+    background:
+      radial-gradient(90% 100% at 18% 0%,rgba(35,105,86,.30),transparent 55%),
+      radial-gradient(80% 100% at 100% 18%,rgba(120,66,98,.16),transparent 62%),
+      linear-gradient(180deg,rgba(4,12,10,.52),rgba(3,9,8,.94));
+  }
+  body.ruanmei-theme #app{
+    display:grid;grid-template-columns:272px minmax(0,1fr) 308px;height:100vh;
+    min-height:0;
+  }
+  body.ruanmei-theme aside{
+    width:auto;flex:none;border-right:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(7,22,18,.84),rgba(4,14,11,.74));
+    box-shadow:inset -1px 0 0 rgba(255,255,255,.015),18px 0 48px rgba(0,0,0,.16);
+  }
+  body.ruanmei-theme .sideveil{
+    background:linear-gradient(90deg,
+      rgba(4,16,13,var(--side-a0)) 0%,
+      rgba(7,24,19,var(--side-a1)) 88%);
+  }
+  body.ruanmei-theme .side-region{
+    position:absolute;inset:0;z-index:0;pointer-events:none;
+    background-image:var(--region-side-bg,none);
+    background-size:cover;background-position:center;
+    opacity:.28;mix-blend-mode:soft-light;transition:opacity .2s;
+  }
+  body.ruanmei-theme .sidebg::after{
+    background:
+      radial-gradient(90% 100% at 18% 0%,rgba(35,105,86,.30),transparent 55%),
+      linear-gradient(180deg,rgba(4,12,10,.52),rgba(3,9,8,.94));
+  }
+  body.ruanmei-theme .brand{padding:20px 18px 14px;gap:12px}
+  body.ruanmei-theme .avatar{
+    width:42px;height:42px;border-radius:50%;
+    border:1px solid rgba(126,224,198,.42);
+    box-shadow:0 0 0 4px rgba(126,224,198,.06),0 0 24px rgba(126,224,198,.14);
+  }
+  body.ruanmei-theme .brand b{
+    font-family:"Songti SC","Noto Serif SC","STSong",serif;
+    font-size:20px;font-weight:600;letter-spacing:.10em;
+  }
+  body.ruanmei-theme .brand small{
+    font-size:10.5px;letter-spacing:.08em;color:var(--muted);
+  }
+  body.ruanmei-theme .ssearch{
+    position:relative;z-index:2;display:flex;align-items:center;gap:8px;
+    margin:2px 12px 8px;padding:0 11px;height:36px;border-radius:12px;
+    border:1px solid var(--line);background:rgba(5,18,14,.55);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  body.ruanmei-theme .ssearch .ico{color:var(--accent);font-size:15px;opacity:.8}
+  body.ruanmei-theme #sessSearch{
+    flex:1;min-width:0;border:0;outline:0;background:transparent;
+    color:var(--ink);font:12.5px/1.4 inherit;
+  }
+  body.ruanmei-theme #sessSearch::placeholder{color:var(--muted);opacity:.75}
+  body.ruanmei-theme .newbtn{
+    position:relative;z-index:2;display:flex;align-items:center;gap:8px;
+    margin:2px 12px 10px;padding:10px 12px;border-radius:12px;
+    border:1px solid rgba(126,224,198,.22);
+    background:linear-gradient(135deg,rgba(126,224,198,.18),rgba(39,104,86,.20));
+    color:var(--ink);font-size:13px;letter-spacing:.02em;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  body.ruanmei-theme .newbtn:hover{
+    border-color:rgba(126,224,198,.42);
+    background:linear-gradient(135deg,rgba(126,224,198,.28),rgba(39,104,86,.28));
+  }
+  body.ruanmei-theme .newbtn kbd{
+    margin-left:auto;font:10px/1 Consolas,monospace;color:var(--muted);
+    border:1px solid var(--line);border-radius:5px;padding:3px 5px;
+  }
+  body.ruanmei-theme .side-nav{
+    position:relative;z-index:2;display:flex;flex-direction:column;gap:2px;
+    padding:0 10px 8px;
+  }
+  body.ruanmei-theme .navi{
+    display:flex;align-items:center;gap:9px;width:100%;
+    padding:8px 10px;border:0;border-radius:9px;background:transparent;
+    color:var(--muted);font-size:12.5px;text-align:left;box-shadow:none;
+  }
+  body.ruanmei-theme .navi:hover{background:rgba(126,224,198,.07);color:var(--ink)}
+  body.ruanmei-theme .navi.on{
+    background:linear-gradient(90deg,rgba(126,224,198,.14),rgba(126,224,198,.01));
+    color:var(--ink);box-shadow:inset 2px 0 0 var(--accent);
+  }
+  body.ruanmei-theme .navi .ni{
+    width:20px;text-align:center;color:var(--accent);font-size:14px;opacity:.85;
+  }
+  body.ruanmei-theme .tool-palette{
+    display:none;grid-template-columns:1fr 1fr;gap:6px;padding:0 12px 10px;
+  }
+  body.ruanmei-theme .tool-palette.show{display:grid}
+  body.ruanmei-theme .tool-palette button{
+    padding:7px 8px;border-radius:8px;font-size:11px;text-align:left;
+    color:var(--muted);background:rgba(5,18,14,.42);
+  }
+  body.ruanmei-theme .tool-palette button:hover{color:var(--ink)}
+  body.ruanmei-theme .sect{
+    padding:8px 16px 5px;color:var(--muted);font-size:10.5px;
+    letter-spacing:.14em;text-transform:uppercase;
+  }
+  body.ruanmei-theme .sess{
+    margin:2px 4px;padding:9px 10px;border-radius:10px;color:#d9ebe3;
+    font-size:12.5px;border:1px solid transparent;
+  }
+  body.ruanmei-theme .sess:hover{background:rgba(126,224,198,.06)}
+  body.ruanmei-theme .sess.on{
+    background:linear-gradient(90deg,rgba(126,224,198,.15),rgba(126,224,198,.03));
+    border-color:rgba(126,224,198,.14);color:#fff;
+  }
+  body.ruanmei-theme .side-work{
+    position:relative;z-index:2;margin:8px 12px 10px;padding:10px 11px;
+    border:1px solid var(--line);border-radius:12px;background:rgba(5,18,14,.46);
+  }
+  body.ruanmei-theme .sw-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  body.ruanmei-theme .sw-head span{font-size:10px;letter-spacing:.14em;color:var(--muted)}
+  body.ruanmei-theme .sw-head button{
+    padding:2px 6px;border:0;background:transparent;color:var(--accent);
+    font-size:10.5px;box-shadow:none;
+  }
+  body.ruanmei-theme .sw-path{
+    margin-top:4px;font:10.5px/1.45 Consolas,"Cascadia Mono",monospace;
+    color:var(--gold);word-break:break-all;opacity:.9;
+  }
+  body.ruanmei-theme .sidefoot{padding:9px 16px;border-top:1px solid var(--line)}
+  body.ruanmei-theme .sidefoot .st{font-size:11px;letter-spacing:.02em}
+  body.ruanmei-theme .dot.on{background:var(--accent);box-shadow:0 0 10px rgba(126,224,198,.65)}
+
+  body.ruanmei-theme main{min-width:0;min-height:0;overflow:hidden}
+  body.ruanmei-theme header{
+    flex:0 0 auto;
+    position:relative;height:72px;padding:0 28px;
+    background:none;
+    border-bottom:0;backdrop-filter:none;box-shadow:none;
+  }
+  body.ruanmei-theme .ttl{display:flex;flex-direction:column;gap:2px;min-width:0}
+  body.ruanmei-theme .ttl h1{
+    margin:0;font-family:"Songti SC","Noto Serif SC","STSong",serif;
+    font-size:18px;font-weight:600;letter-spacing:.03em;
+    text-shadow:0 2px 14px rgba(0,0,0,.55);
+  }
+  body.ruanmei-theme .ttl .sub{
+    display:flex;align-items:center;gap:6px;font-size:10.5px;
+    color:var(--muted);letter-spacing:.10em;
+    text-shadow:0 1px 8px rgba(0,0,0,.65);
+  }
+  body.ruanmei-theme #wd{display:none}
+  body.ruanmei-theme .dot-live{
+    width:5px;height:5px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 8px rgba(126,224,198,.8);
+  }
+  body.ruanmei-theme .mode-chip{
+    display:inline-flex;align-items:center;gap:6px;padding:5px 10px;
+    border:1px solid rgba(126,224,198,.16);border-radius:999px;
+    color:var(--accent);background:rgba(4,14,11,.52);
+    backdrop-filter:blur(10px);box-shadow:0 4px 18px rgba(0,0,0,.10);
+    text-shadow:0 1px 8px rgba(0,0,0,.70);
+    font-size:10.5px;letter-spacing:.08em;white-space:nowrap;
+  }
+  body.ruanmei-theme .mode-chip::before{
+    content:'';width:5px;height:5px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 7px rgba(126,224,198,.8);
+  }
+  body.ruanmei-theme header .wd{color:var(--muted);font-size:11px}
+  body.ruanmei-theme header .sp{position:relative;isolation:isolate}
+  body.ruanmei-theme header .sp::before{
+    content:'';position:absolute;inset:-4px -8px;z-index:-1;border-radius:22px;
+    background:radial-gradient(80% 100% at 50% 50%,rgba(4,12,10,.46),rgba(4,12,10,0));
+    filter:blur(8px);pointer-events:none;
+  }
+  body.ruanmei-theme header button{
+    padding:6px 11px;border-radius:10px;font-size:11.5px;
+    border-color:rgba(126,224,198,.22);background:rgba(4,14,11,.58);
+    backdrop-filter:blur(10px);box-shadow:0 4px 18px rgba(0,0,0,.12);
+    color:#f2fbf7;font-weight:500;text-shadow:0 1px 8px rgba(0,0,0,.70);
+  }
+  body.ruanmei-theme header button:hover{border-color:rgba(126,224,198,.4)}
+  body.ruanmei-theme header button.on{
+    background:linear-gradient(135deg,rgba(126,224,198,.92),rgba(85,190,168,.86));
+    color:#04110d;border-color:transparent;
+    box-shadow:0 6px 20px rgba(71,208,176,.18);
+  }
+  body.ruanmei-theme header select{
+    padding:6px 8px;border-radius:10px;border-color:var(--line);
+    background:rgba(4,14,11,.56);color:#f2fbf7;font-weight:500;backdrop-filter:blur(10px);
+    box-shadow:0 4px 18px rgba(0,0,0,.10);
+    text-shadow:0 1px 8px rgba(0,0,0,.70);
+  }
+  body.ruanmei-theme .saystate{text-shadow:0 1px 8px rgba(0,0,0,.70)}
+
+  body.ruanmei-theme #log{
+    padding:34px clamp(20px,4.5vw,64px) 12px;min-height:0;
+    background-image:var(--region-chat-bg,none);
+    background-size:cover;background-position:center;background-attachment:local;
+  }
+  body.ruanmei-theme #log .empty{
+    max-width:760px;margin:5vh auto 0;padding:0;text-align:left;
+  }
+  body.ruanmei-theme #log .empty::before{display:none}
+  body.ruanmei-theme #log .blossom{
+    justify-content:flex-start;margin:0 0 18px;
+    filter:drop-shadow(0 0 22px rgba(126,224,198,.32));
+  }
+  body.ruanmei-theme #log .blossom svg{width:54px;height:54px}
+  body.ruanmei-theme .hero-kicker{
+    color:var(--gold);font-size:10.5px;letter-spacing:.18em;
+    text-transform:uppercase;margin-bottom:8px;
+  }
+  body.ruanmei-theme .hero-title{
+    margin:0;font-family:"Songti SC","Noto Serif SC","STSong",serif;
+    font-size:clamp(28px,3vw,40px);font-weight:600;line-height:1.25;
+    letter-spacing:.02em;color:#f2fbf6;
+  }
+  body.ruanmei-theme #log .opener{
+    max-width:620px;margin:12px 0 22px;text-align:left;
+    font-size:14px;line-height:1.8;color:var(--muted);text-shadow:none;
+  }
+  body.ruanmei-theme .quick-grid{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;
+    max-width:640px;
+  }
+  body.ruanmei-theme .quick{
+    padding:10px 12px;border-radius:11px;text-align:left;
+    border:1px solid var(--line);background:rgba(8,26,21,.48);
+    color:var(--ink);font-size:11.5px;box-shadow:none;
+  }
+  body.ruanmei-theme .quick:hover{
+    border-color:rgba(126,224,198,.34);background:rgba(126,224,198,.07);
+  }
+  body.ruanmei-theme .row{margin-bottom:22px}
+  body.ruanmei-theme .col{max-width:min(780px,84%)}
+  body.ruanmei-theme .who{
+    margin:0 4px 6px;color:var(--muted);font-size:10px;
+    letter-spacing:.16em;text-transform:uppercase;text-shadow:none;
+  }
+  body.ruanmei-theme .bubble{
+    padding:13px 16px;border-radius:4px 18px 18px 18px;
+    border:1px solid rgba(126,224,198,.13);
+    background:linear-gradient(180deg,rgba(11,33,27,.80),rgba(7,24,20,.68));
+    box-shadow:0 12px 30px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.035);
+  }
+  body.ruanmei-theme .row.left .bubble{position:relative}
+  body.ruanmei-theme .row.left .bubble::before{
+    content:'';position:absolute;left:-1px;top:14px;bottom:14px;width:2px;
+    border-radius:2px;background:linear-gradient(180deg,var(--accent),transparent);
+    opacity:.55;
+  }
+  body.ruanmei-theme .row.right .bubble{
+    border-radius:18px 4px 18px 18px;
+    border-color:rgba(217,184,216,.20);
+    background:linear-gradient(180deg,rgba(65,44,68,.34),rgba(35,68,60,.38));
+  }
+  body.ruanmei-theme .bubble pre{
+    background:rgba(2,10,8,.62);border-color:rgba(126,224,198,.12);
+    color:#cfe7dc;
+  }
+  body.ruanmei-theme .tool{
+    border-color:rgba(126,224,198,.13);border-left:2px solid rgba(126,224,198,.45);
+    background:rgba(4,14,11,.70);border-radius:12px;
+  }
+  body.ruanmei-theme .tool .th b{
+    color:var(--accent);font-family:Consolas,"Cascadia Mono",monospace;
+    letter-spacing:.06em;
+  }
+  body.ruanmei-theme .tool .body{background:rgba(1,8,6,.38)}
+
+  body.ruanmei-theme footer{
+    flex:0 0 auto;
+    padding:14px clamp(16px,4.5vw,64px) 16px;
+    border-top:1px solid rgba(126,224,198,.09);
+    background:linear-gradient(180deg,rgba(6,18,15,.46),rgba(4,13,10,.88));
+    backdrop-filter:blur(18px);
+  }
+  body.ruanmei-theme .ctr{
+    max-width:1000px;min-width:0;align-items:center;gap:8px;padding:7px;
+    border:1px solid rgba(126,224,198,.16);border-radius:20px;
+    background:rgba(5,18,14,.76);
+    box-shadow:0 18px 50px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  body.ruanmei-theme textarea{
+    height:52px;min-width:0;padding:12px 8px;border:0;border-radius:12px;
+    background:transparent;color:var(--ink);font-size:14.5px;
+  }
+  body.ruanmei-theme textarea:focus{box-shadow:none}
+  body.ruanmei-theme .mic,body.ruanmei-theme .send{
+    height:44px;border-radius:14px;white-space:nowrap;
+  }
+  body.ruanmei-theme .mic{
+    border-color:rgba(126,224,198,.16);background:rgba(12,33,27,.52);
+    color:var(--muted);
+  }
+  body.ruanmei-theme .send{
+    padding:0 20px;border:0;
+    background:linear-gradient(135deg,#8be8d0,#4bbba3);color:#04110d;
+    font-weight:700;box-shadow:0 8px 24px rgba(71,208,176,.20);
+  }
+  body.ruanmei-theme .send:hover{filter:brightness(1.06)}
+  body.ruanmei-theme .opts{
+    max-width:1000px;margin:8px auto 0;font-size:11px;color:var(--muted);
+    opacity:.84;
+  }
+
+  body.ruanmei-theme #rail{
+    position:relative;min-width:0;overflow:hidden;
+    border-left:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(6,20,16,.62),rgba(4,13,10,.84));
+    backdrop-filter:blur(18px);
+  }
+  body.ruanmei-theme #rail::before{
+    content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
+    background-image:var(--region-rail-bg,none);
+    background-size:cover;background-position:center;
+    opacity:.24;mix-blend-mode:soft-light;
+  }
+  body.ruanmei-theme .rail-scroll{
+    position:relative;z-index:1;height:100%;overflow-y:auto;padding:46px 14px 18px;display:flex;
+    flex-direction:column;gap:12px;
+  }
+  body.ruanmei-theme .rail-card{
+    flex:0 0 auto;
+    border:1px solid var(--line);border-radius:16px;
+    background:linear-gradient(180deg,rgba(9,29,23,.58),rgba(5,18,14,.42));
+    box-shadow:0 12px 30px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.025);
+    padding:12px 13px;
+  }
+  body.ruanmei-theme .char-card{
+    position:relative;padding:0;overflow:hidden;border-radius:20px;
+    border-color:rgba(126,224,198,.18);
+    background:rgba(5,18,14,.62);
+  }
+  body.ruanmei-theme .char-img{
+    display:block;width:100%;height:212px;object-fit:cover;
+    object-position:center 22%;filter:saturate(.82) contrast(1.05);
+  }
+  body.ruanmei-theme .char-card::after{
+    content:'';position:absolute;left:0;right:0;top:80px;height:170px;
+    background:linear-gradient(180deg,rgba(5,18,14,0),rgba(5,18,14,.90) 78%);
+    pointer-events:none;
+  }
+  body.ruanmei-theme .char-info{
+    position:relative;z-index:1;margin-top:-58px;padding:28px 14px 14px;
+    border-radius:0 0 20px 20px;
+    background:linear-gradient(180deg,rgba(5,18,14,0),rgba(5,18,14,.88) 34%,rgba(5,18,14,.98));
+  }
+  body.ruanmei-theme .char-eyebrow{
+    display:block;color:var(--gold);font-size:9.5px;letter-spacing:.18em;
+    margin-bottom:4px;opacity:.9;
+  }
+  body.ruanmei-theme .char-info h2{
+    margin:0;font-family:"Songti SC","Noto Serif SC","STSong",serif;
+    font-size:27px;font-weight:600;letter-spacing:.12em;color:#f5fcf8;
+    text-shadow:0 2px 14px rgba(0,0,0,.85);
+  }
+  body.ruanmei-theme .char-info p{
+    margin:2px 0 9px;color:var(--muted);font-size:10.5px;letter-spacing:.04em;
+  }
+  body.ruanmei-theme .char-state{
+    display:inline-flex;align-items:center;gap:6px;padding:4px 9px;
+    border:1px solid rgba(126,224,198,.16);border-radius:999px;
+    color:var(--accent);font-size:10px;background:rgba(126,224,198,.06);
+  }
+  body.ruanmei-theme .char-state i{
+    width:5px;height:5px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 7px rgba(126,224,198,.8);
+  }
+  body.ruanmei-theme .rc-head{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    margin-bottom:9px;
+  }
+  body.ruanmei-theme .rc-head h3{
+    margin:0;font-family:"Songti SC","Noto Serif SC","STSong",serif;
+    font-size:14px;font-weight:600;letter-spacing:.05em;
+  }
+  body.ruanmei-theme .mini{
+    width:22px;height:22px;padding:0;border-radius:50%;
+    border:1px solid var(--line);background:rgba(126,224,198,.06);
+    color:var(--accent);font-size:13px;line-height:1;box-shadow:none;
+  }
+  body.ruanmei-theme .mini.wide{width:auto;padding:0 9px;border-radius:7px;font-size:10.5px}
+  body.ruanmei-theme .rail-list{display:flex;flex-direction:column;gap:7px}
+  body.ruanmei-theme .rail-task{
+    display:flex;align-items:flex-start;gap:8px;padding:7px 8px;
+    border:1px solid transparent;border-radius:8px;
+    color:#d6e9e0;font-size:11.5px;line-height:1.5;
+    background:rgba(5,18,14,.32);cursor:pointer;
+  }
+  body.ruanmei-theme .rail-task:hover{
+    border-color:rgba(126,224,198,.16);background:rgba(126,224,198,.05);
+  }
+  body.ruanmei-theme .rail-task .box{
+    width:12px;height:12px;flex:0 0 12px;margin-top:3px;border-radius:4px;
+    border:1px solid rgba(126,224,198,.34);background:rgba(126,224,198,.04);
+  }
+  body.ruanmei-theme .rail-task .t{flex:1;min-width:0}
+  body.ruanmei-theme .rail-task .tm{
+    color:var(--gold);font:10px/1.4 Consolas,monospace;white-space:nowrap;
+  }
+  body.ruanmei-theme .rail-empty{
+    color:var(--muted);font-size:11px;line-height:1.65;opacity:.82;
+  }
+  body.ruanmei-theme .rail-clock{
+    color:var(--gold);font:11px/1 Consolas,monospace;letter-spacing:.06em;
+  }
+  body.ruanmei-theme .mem-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:5px 0;border-bottom:1px solid rgba(126,224,198,.07);
+    font-size:11px;color:var(--muted);
+  }
+  body.ruanmei-theme .mem-row b{color:var(--ink);font-size:11.5px;font-weight:500}
+  body.ruanmei-theme .mem-note{
+    margin-top:9px;color:var(--muted);font-size:10.5px;line-height:1.55;
+    max-height:44px;overflow:hidden;
+  }
+  body.ruanmei-theme .rail-foot{
+    margin-top:auto;display:flex;align-items:center;gap:6px;
+    color:var(--muted);font-size:10px;letter-spacing:.04em;opacity:.72;
+    padding:2px 4px;
+  }
+  body.ruanmei-theme .bg-grid{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;
+    margin-top:8px;max-height:250px;overflow-y:auto;padding:2px;
+  }
+  body.ruanmei-theme .bg-tile{
+    position:relative;min-width:0;padding:0;aspect-ratio:1;overflow:hidden;
+    border:1px solid var(--line);border-radius:10px;background:rgba(4,14,11,.55);
+    box-shadow:none;cursor:pointer;
+  }
+  body.ruanmei-theme .bg-tile img{
+    width:100%;height:100%;object-fit:cover;display:block;
+  }
+  body.ruanmei-theme .bg-tile span{
+    position:absolute;left:5px;bottom:4px;padding:1px 4px;border-radius:4px;
+    background:rgba(3,10,8,.68);color:#eaf7f1;font:9px/1.3 Consolas,monospace;
+  }
+  body.ruanmei-theme .bg-tile.on{
+    border-color:rgba(126,224,198,.7);
+    box-shadow:0 0 0 2px rgba(126,224,198,.20);
+  }
+  body.ruanmei-theme .bg-tile:hover{border-color:rgba(126,224,198,.45)}
+
+  body.ruanmei-theme .sticker-grid{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;
+  }
+  body.ruanmei-theme .sticker-tile{
+    min-width:0;padding:0;aspect-ratio:1;overflow:hidden;border-radius:10px;
+    border:1px solid var(--line);background:rgba(4,14,11,.55);
+    box-shadow:none;cursor:pointer;
+  }
+  body.ruanmei-theme .sticker-tile img{
+    width:100%;height:100%;object-fit:cover;display:block;
+  }
+  body.ruanmei-theme .sticker-tile:hover{
+    border-color:rgba(126,224,198,.45);transform:translateY(-1px);
+  }
+  body.ruanmei-theme .sticker-open{
+    flex:0 0 auto;padding:4px 9px;border-radius:999px;font-size:10.5px;
+    color:var(--accent);background:rgba(126,224,198,.07);
+    border-color:rgba(126,224,198,.18);box-shadow:none;
+  }
+  body.ruanmei-theme #stickerPop{
+    position:fixed;right:300px;bottom:132px;z-index:36;width:286px;
+    padding:12px;border:1px solid rgba(126,224,198,.20);border-radius:16px;
+    background:rgba(5,18,14,.95);backdrop-filter:blur(18px);
+    box-shadow:0 18px 46px rgba(0,0,0,.42);display:none;
+  }
+  body.ruanmei-theme #stickerPop.open{display:block}
+  body.ruanmei-theme .sp-head{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:9px;color:var(--ink);font-size:12px;
+  }
+  body.ruanmei-theme .sp-head button{
+    width:22px;height:22px;padding:0;border-radius:7px;font-size:11px;
+  }
+  body.ruanmei-theme .sticker-bubble{
+    padding:0!important;border:0!important;background:transparent!important;
+    box-shadow:none!important;
+  }
+  body.ruanmei-theme .sticker-msg{
+    display:block;width:180px;height:180px;max-width:58vw;max-height:220px;
+    object-fit:cover;border-radius:18px;border:1px solid rgba(126,224,198,.20);
+    box-shadow:0 12px 30px rgba(0,0,0,.30);
+  }
+
+  body.ruanmei-theme #drawer{
+    background:rgba(5,17,14,.95);border-left:1px solid var(--line);
+  }
+  body.ruanmei-theme .dhead{background:rgba(5,17,14,.97)}
+  body.ruanmei-theme #drawer input,body.ruanmei-theme #drawer select{
+    border-color:var(--line);background:rgba(3,12,9,.78);color:var(--ink);
+  }
+  body.ruanmei-theme #drawer input:focus,body.ruanmei-theme #drawer select:focus{
+    border-color:rgba(126,224,198,.5);
+  }
+  body.ruanmei-theme .path{
+    color:var(--gold);background:rgba(2,10,8,.5);border-color:var(--line);
+  }
+  body.ruanmei-theme ::-webkit-scrollbar{width:6px;height:6px}
+  body.ruanmei-theme ::-webkit-scrollbar-thumb{
+    background:rgba(126,224,198,.16);border-radius:99px;
+  }
+
+  /* JS 也会按实际 innerWidth 打上这些类，防止 WebView2 首次打开时
+     媒体查询还没跟着最终窗口尺寸重算（最大化再缩回才正常的老毛病）。 */
+  body.ruanmei-theme.compact .ttl{flex-direction:row;align-items:center;gap:8px}
+  body.ruanmei-theme.compact .ttl .sub{display:none}
+  body.ruanmei-theme.compact .ttl h1{
+    font-size:17px;max-width:34vw;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;
+  }
+  body.ruanmei-theme.narrow #app{grid-template-columns:272px minmax(0,1fr)}
+  body.ruanmei-theme.narrow #rail{display:none}
+  body.ruanmei-theme.narrow header{padding-right:112px}
+  body.ruanmei-theme.narrow .opts>span:first-child{display:none}
+  body.ruanmei-theme.micro .mode-chip{display:none}
+  body.ruanmei-theme.tiny #app{display:block}
+  body.ruanmei-theme.tiny main{height:100dvh}
+  body.ruanmei-theme.tiny aside{width:272px;flex:0 0 272px}
+
+  @media (max-width:1400px){
+    body.ruanmei-theme .ttl{flex-direction:row;align-items:center;gap:8px}
+    body.ruanmei-theme .ttl .sub{display:none}
+    body.ruanmei-theme .ttl h1{
+      font-size:17px;max-width:34vw;white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis;
+    }
+  }
+  @media (max-width:1180px){
+    body.ruanmei-theme header{padding-right:112px}
+    body.ruanmei-theme .opts>span:first-child{display:none}
+    body.ruanmei-theme #app{grid-template-columns:272px minmax(0,1fr)}
+    body.ruanmei-theme #rail{display:none}
+  }
+  @media (max-width:1050px){
+    body.ruanmei-theme .mode-chip{display:none}
+  }
+  @media (max-width:820px){
+    body.ruanmei-theme #app{display:block}
+    body.ruanmei-theme aside{width:272px;flex:0 0 272px}
+    body.ruanmei-theme main{height:100dvh}
+    body.ruanmei-theme header{height:auto;padding:10px 12px}
+    body.ruanmei-theme .ttl .sub,body.ruanmei-theme .mode-chip{display:none}
+    body.ruanmei-theme .ttl h1{font-size:15px}
+    body.ruanmei-theme #log{padding:20px 14px 8px}
+    body.ruanmei-theme .quick-grid{grid-template-columns:1fr}
+    body.ruanmei-theme footer{padding:10px 12px 12px}
+    body.ruanmei-theme .ctr{padding:5px}
+    body.ruanmei-theme .opts>span:first-child{display:none}
+    body.ruanmei-theme #stickerPop{
+      left:12px;right:12px;bottom:126px;width:auto;
+    }
+    body.ruanmei-theme .sticker-msg{width:150px;height:150px}
+  }
+</style>
+</head>
+<body class="ruanmei-theme">
+<div id="dragbar" class="pywebview-drag-region" title="拖动窗口"></div>
+<div id="wincontrols">
+  <button id="winMin" title="最小化">—</button>
+  <button id="winMax" title="最大化 / 还原">□</button>
+  <button id="winClose" title="关闭">✕</button>
+</div>
+<div id="bglayer"></div>
+<div id="scrim"></div>
+
+<div id="app">
+  <aside id="side">
+    <div class="sidebg" id="sidebg"></div>
+    <div class="side-region" id="sideRegion"></div>
+    <div class="sideveil"></div>
+    <div class="brand">
+      <img class="avatar" id="avatar" alt="阮梅">
+      <div><b>阮梅</b><small>天才俱乐部 · 第 81 号会员</small></div>
+    </div>
+    <div class="ssearch">
+      <span class="ico">⌕</span>
+      <input id="sessSearch" placeholder="搜索会话或任务…" autocomplete="off">
+    </div>
+    <button class="newbtn" id="new"><span>＋</span> 新建任务 <kbd>⌘K</kbd></button>
+    <nav class="side-nav">
+      <button class="navi on" data-nav="chat"><span class="ni">◈</span>Agent 控制台</button>
+      <button class="navi" data-nav="tools"><span class="ni">⌘</span>工具中心</button>
+      <button class="navi" data-nav="history"><span class="ni">◷</span>任务历史</button>
+    </nav>
+    <div id="toolPalette" class="tool-palette">
+      <button data-q="帮我看看工作目录里有什么，顺便整理一下">整理工作目录</button>
+      <button data-q="帮我安排今天的时间，先看看我的习惯">安排今天</button>
+      <button data-q="看看我最近爱听什么，然后放首歌">听点什么</button>
+      <button data-q="查看一下系统状态，有没有什么异常">看系统状态</button>
+    </div>
+    <div class="sect">历史会话</div>
+    <div id="sessions"></div>
+    <div class="side-work">
+      <div class="sw-head"><span>工作空间</span><button id="wdEdit">更换</button></div>
+      <div class="sw-path" id="wdSide">—</div>
+    </div>
+    <div class="sidefoot">
+      <div class="st"><span class="dot" id="dotModel"></span><span id="sModel">模型 检查中…</span></div>
+      <div class="st"><span class="dot" id="dotTts"></span><span id="sTts">语音 检查中…</span></div>
+    </div>
+  </aside>
+
+  <main>
+    <header>
+      <button id="menu" class="menu" title="侧栏">☰</button>
+      <div class="ttl">
+        <h1 id="title">新的对话</h1>
+        <div class="sub"><span class="dot-live"></span>阮梅 · 本地 Agent
+          <span class="wd" id="wd">—</span></div>
+      </div>
+      <span class="mode-chip">日常模式</span>
+      <span class="sp">
+        <span id="sayState" class="saystate"></span>
+        <button id="voice" class="on" title="每条回复自动朗读；语气会根据内容自动选择。关掉就只在你点「重播」时出声">🔊 自动朗读</button>
+        <button id="skin">🎨 外观</button>
+      </span>
+    </header>
+
+    <div id="log"></div>
+
+    <footer>
+      <div class="ctr">
+        <button class="mic" id="mic" title="语音输入：点一下开始说，再点一下结束（离线识别）">🎙 说话</button>
+        <textarea id="inp" placeholder="和阮梅说点什么…"
+          title="可以直接让我读写文件、跑命令；Enter 发送，Shift+Enter 换行"></textarea>
+        <button class="send" id="send">发送</button>
+      </div>
+      <div class="opts">
+        <span>工具：文件 · 命令 · 系统 · 看图 · 软件 · 手机 · 音乐 · 提醒 · 习惯 · Office · 视频</span>
+        <button id="stickerBtn" class="sticker-open" title="发送一张表情包">☺ 表情</button>
+        <span class="sp" id="hint">正在连接…</span>
+      </div>
+    </footer>
+  </main>
+
+  <section id="rail">
+    <div class="rail-scroll">
+      <div class="rail-card char-card">
+        <img class="char-img" src="/assets/bg.jpg" alt="阮梅">
+        <div class="char-info">
+          <span class="char-eyebrow">GENIUS SOCIETY · NO.81</span>
+          <h2>阮梅</h2>
+          <p>天才俱乐部 · 第 81 号会员</p>
+          <div class="char-state" id="railState"><i></i>待命中</div>
+        </div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head"><h3>今日任务</h3><button class="mini" id="railNewTask" title="新建任务">＋</button></div>
+        <div id="railTasks" class="rail-list">
+          <div class="rail-empty">还没有安排。点上面的 ＋，或从下面的快捷入口开始。</div>
+        </div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head"><h3>提醒</h3><span class="rail-clock" id="railClock">--:--</span></div>
+        <div id="railReminders" class="rail-list">
+          <div class="rail-empty">暂无提醒。</div>
+        </div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head"><h3>记忆管理</h3><button class="mini wide" id="railMemory">打开</button></div>
+        <div class="mem-row"><span>长期习惯</span><b id="railHabitCount">—</b></div>
+        <div class="mem-row"><span>听歌画像</span><b id="railTasteCount">—</b></div>
+        <div class="mem-note" id="railTaste">（还没有记录）</div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head"><h3>表情包</h3><button class="mini wide" id="autoStickerBtn">自动·开</button><button class="mini wide" id="stickerRandom">随机</button></div>
+        <div id="stickerGrid" class="sticker-grid"></div>
+        <div class="rail-empty" style="margin-top:6px">点一张，作为梅梅的回复发到当前对话。</div>
+      </div>
+      <div class="rail-card">
+        <div class="rc-head"><h3>快捷入口</h3></div>
+        <div class="rail-list">
+          <div class="rail-task" data-q="帮我看看工作目录里有什么，顺便整理一下"><span class="box"></span><span class="t">整理工作目录</span></div>
+          <div class="rail-task" data-q="帮我安排今天的时间，先看看我的习惯"><span class="box"></span><span class="t">安排今天</span></div>
+          <div class="rail-task" data-q="看看我最近爱听什么，然后放首歌"><span class="box"></span><span class="t">听点什么</span></div>
+        </div>
+      </div>
+      <div class="rail-foot"><span class="dot on"></span>本地运行 · 数据不离开这台电脑</div>
+    </div>
+  </section>
+</div>
+
+<div id="sideBack"></div>
+<div id="drawerBack"></div>
+<div id="stickerPop">
+  <div class="sp-head"><b>表情包</b><button class="mini wide" id="autoStickerBtn2">自动·开</button><button id="stickerPopClose" title="关闭">✕</button></div>
+  <div id="stickerPopGrid" class="sticker-grid"></div>
+</div>
+<div id="drawer">
+  <div class="dhead">
+    <h2>外观</h2>
+    <button id="drawerClose" title="关闭（Esc）">✕ 关闭</button>
+  </div>
+  <p class="tip">换背景图/视频、换图标，改完立刻生效，不用重启。</p>
+
+  <label>语音朗读方式</label>
+  <label style="display:flex;align-items:center;gap:9px;color:var(--ink);margin:0 0 4px">
+    <input type="checkbox" id="streamChk" style="width:auto">
+    分块朗读（约 3 秒就出声，句与句之间有停顿）
+  </label>
+  <label style="display:flex;align-items:center;gap:9px;color:var(--ink);margin:0 0 4px">
+    <input type="checkbox" id="pauseBgChk" style="width:auto">
+    朗读时让背景视频停一下（防卡顿）
+  </label>
+  <p class="tip" style="margin:0 0 10px">语音合成和背景视频都要用显卡，回答的那十几秒里
+    背景容易一顿一顿。勾上就是"说话时背景暂停、说完接着放"——代价是长回复念多久、
+    背景就停多久（最多 60 秒会强制放开）。</p>
+  <p class="tip" style="margin:0 0 10px">不勾选 = 整段合成：没有任何接缝、最连贯，
+    但长回复要等十几秒才出声。</p>
+
+  <label>背景</label>
+  <select id="bgSel"></select>
+  <label>背景明暗（越往右越暗，文字越清楚）</label>
+  <input type="range" id="dim" min="0" max="100" step="5" value="70">
+  <label>图片素材库 · D:\ai\图片素材</label>
+  <p class="tip" style="margin:0 0 6px">先选放在哪里，再点一张图。整体背景走原外观设置；
+    聊天区/左栏/右栏背景保存在本机。</p>
+  <select id="bgRegion">
+    <option value="global">整体背景</option>
+    <option value="chat">聊天区</option>
+    <option value="side">左侧栏</option>
+    <option value="rail">右侧栏</option>
+  </select>
+  <div id="bgLibrary" class="bg-grid"></div>
+  <div class="rowbtn"><button id="bgClear">清除当前区域背景</button></div>
+  <label>边栏融入背景（越往右背景越透进侧栏）</label>
+  <input type="range" id="blend" min="0" max="100" step="5" value="55">
+  <label>左栏不透明度（越大越实、文字越清楚；越小越透）</label>
+  <input type="range" id="sideOp" min="0" max="100" step="1" value="78">
+  <label>底部输入区不透明度</label>
+  <input type="range" id="footOp" min="0" max="100" step="1" value="78">
+  <label>顶栏不透明度（拉满就没有白蒙蒙的一层）</label>
+  <input type="range" id="headOp" min="0" max="100" step="1" value="78">
+  <div class="preview" id="preview"></div>
+
+  <label>图标（浏览器标签页 / 侧栏头像）</label>
+  <select id="iconSel"></select>
+
+  <label>工作目录（Agent 只能改这里的文件）</label>
+  <input id="wdIn" placeholder="D:\我的项目">
+  <div class="rowbtn"><button id="wdApply">应用工作目录</button></div>
+
+  <label>额外只读目录（图片/素材放这儿，分号分隔，只读不改）</label>
+  <input id="rdIn" placeholder="D:\b站下载;F:\qqqqq\Documents">
+  <div class="rowbtn"><button id="rdApply">应用只读目录</button></div>
+
+  <label>从别处导入素材</label>
+  <input id="impSrc" placeholder="D:\图片\梅梅.png">
+  <div class="rowbtn">
+    <button id="impBg">导入并设为背景</button>
+    <button id="impIcon">导入并设为图标</button>
+  </div>
+
+  <label>梅梅记住的习惯</label>
+  <p class="tip" style="margin:0 0 6px">
+    每轮对话都会读进去 —— 既有干活的偏好（剪视频、做 PPT…），也有生活习惯
+    （作息、吃饭、出门、健康、花钱、娱乐）。你说「以后都这样 / 记住 / 我一般…」
+    它就会往里加；你也可以直接在这儿改，或打开这个文件编辑：</p>
+  <div class="path" id="habitsPath">—</div>
+  <textarea id="habitsBox" style="height:170px;font-size:12.5px;margin-top:8px"
+    placeholder="## 剪视频&#10;- 导出优先 1080p60，转码加 -g 120 + faststart"></textarea>
+  <div class="rowbtn">
+    <button id="habitsSave">保存习惯</button>
+    <button id="habitsReload">重新读取</button>
+  </div>
+
+  <label>定时提醒（到点她自己念出来，不用页面开着）</label>
+  <p class="tip" style="margin:0 0 6px">到点由服务端合成她的声音、用这台机器的音箱放。
+    前提是梅梅在运行；说「提醒我 23:00 该睡了」也一样能加。</p>
+  <div id="remList" class="path" style="max-height:130px;overflow:auto">（还没有提醒）</div>
+  <div class="rowbtn" style="flex-wrap:wrap">
+    <input id="remTime" type="time" value="23:00" style="width:120px">
+    <select id="remRepeat" style="width:110px">
+      <option value="daily">每天</option>
+      <option value="weekdays">工作日</option>
+      <option value="once">只一次</option>
+    </select>
+    <input id="remText" placeholder="提醒什么" style="flex:1;min-width:120px">
+  </div>
+  <div class="rowbtn">
+    <button id="remAdd">加这条提醒</button>
+    <button id="remTest">试听一句</button>
+  </div>
+  <p class="tip" style="margin:6px 0 0" id="remFired">最近响过：—</p>
+
+  <label>我听歌的口味（她自动记的）</label>
+  <p class="tip" style="margin:0 0 6px">她每隔一会儿看一眼 QQ音乐 在放什么，攒下来的记录。
+    你明说的偏好（爱听谁、不想听什么）会写进上面的习惯里。</p>
+  <div class="path" id="tasteBox" style="max-height:120px;overflow:auto">（还没有记录）</div>
+  <div class="rowbtn"><button id="tasteReload">刷新听歌记录</button></div>
+
+  <div class="note">
+    <span id="hint2">—</span><br>
+    素材库目录（直接把文件拷进去也行）：<br>
+    <div class="path" id="assetsDir">—</div>
+    图片 jpg/png/webp/gif，视频 mp4/webm。背景视频会自动静音循环。
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = $('log'), inp = $('inp');
+let cfg = null, busy = false;
+let autoSpeak = localStorage.getItem('rm_voice') !== '0';   // 每条回复都自动朗读
+/* 思考模式对这个模型是负面的：开着会输出大段通用 AI 腔、还慢好几倍，
+   所以固定关掉（原来那个开关已移除），启动时顺手把旧设置清掉。 */
+try { localStorage.removeItem('rm_think'); } catch (e) {}
+/* 分块朗读（流式）还是整段一次性合成：
+   分块开口快（约 3 秒出声），但每块是独立合成的，句与句之间有换气和停顿；
+   整段没有接缝、韵律连贯，但要等整段合成完（长回复十几秒才出声）。 */
+let streamSpeak = localStorage.getItem('rm_stream') !== '0';
+/* 语气不再让用户手选：按主人这句话和梅梅的回复内容自动判断。
+   calm=平静，warm=轻快，wry=调侃。技术/报错类一律 calm，避免怪腔调。 */
+function pickTone(userText, replyText){
+  const u = String(userText || '');
+  const r = String(replyText || '');
+  if (!r.trim()) return 'calm';
+  if (r.includes('```') ||
+      /报错|错误|失败|无法|不能|抱歉|风险|删除|权限|命令|代码|配置|安装|卸载|检查|诊断/.test(r)) {
+    return 'calm';
+  }
+  const wry = /调侃|逗你|骗你的|才不|哼|明知故问|猜猜|奖励|想要什么|这可|你啊/;
+  if (wry.test(r) || wry.test(u)) return 'wry';
+  const warm = /好呀|当然|开心|喜欢|可爱|太好|恭喜|加油|陪你|抱抱|别担心|欢迎|辛苦|哈哈|～|呀|呢|哦/;
+  if (warm.test(r) || /开心|喜欢|好呀|哈哈|可爱|奖励/.test(u)) return 'warm';
+  return 'calm';
+}
+/* 复用一个播放器元素：浏览器对自动播放的限制只认第一次，
+   被拦下之后只要用户点过页面就能播，这里存着待播的音频等着补播。 */
+const player = new Audio();
+let blockedAudio = null;
+
+/* 碧青色梅花：介于蓝和绿之间的青绿，取两边中间那一档 */
+const BLOSSOM_SVG = [
+  '<svg viewBox="0 0 100 100" aria-hidden="true">',
+  '<defs><linearGradient id="rmBlossom" x1="0" y1="0" x2="1" y2="1">',
+  '<stop offset="0" stop-color="#99f6e4"/><stop offset=".55" stop-color="#2dd4bf"/>',
+  '<stop offset="1" stop-color="#0891b2"/></linearGradient></defs>',
+  '<g fill="url(#rmBlossom)">',
+  '<ellipse cx="50" cy="26" rx="13" ry="19"/>',
+  '<ellipse cx="50" cy="26" rx="13" ry="19" transform="rotate(72 50 50)"/>',
+  '<ellipse cx="50" cy="26" rx="13" ry="19" transform="rotate(144 50 50)"/>',
+  '<ellipse cx="50" cy="26" rx="13" ry="19" transform="rotate(216 50 50)"/>',
+  '<ellipse cx="50" cy="26" rx="13" ry="19" transform="rotate(288 50 50)"/>',
+  '</g><circle cx="50" cy="50" r="8" fill="#f0fdfa"/>',
+  '<circle cx="50" cy="50" r="3" fill="#14b8a6"/></svg>'
+].join('');
+const DEFAULT_FAVICON = $('favicon').href;   // 页面里写的那朵青蓝梅花
+
+/* 空状态的开场白：按阮梅的语气写（平静、用完整句子、不用感叹号、称对方「亲爱的」），
+   每次打开应用或新建对话随机选一句。想加句子直接往数组里加。 */
+const OPENERS = [
+  '亲爱的，坐吧。要整理文件、读代码，还是跑命令？',
+  '新的一页。你想从哪件事开始？',
+  '我在这里。把工作目录指给我，剩下的我来处理。',
+  '亲爱的，先说你要什么结果，过程交给我。',
+  '目录、代码、命令，这三件事都可以交给我。',
+  '不必客气。需要我读哪份文件，或者改哪段代码？',
+  '先让我看看现状，再决定怎么做。把目录告诉我。',
+  '把要处理的事讲清楚就行，我来安排步骤。',
+  '亲爱的，有什么事需要我代劳？',
+  '今天想做点什么。整理文件，还是先看看代码？'
+];
+let lastOpener = -1;
+function pickOpener(){
+  let i = Math.floor(Math.random() * OPENERS.length);
+  if (OPENERS.length > 1 && i === lastOpener) i = (i + 1) % OPENERS.length;
+  lastOpener = i;
+  return OPENERS[i];
+}
+let bootOpener = pickOpener();   // 打开应用时先定一句，别每次重绘都换
+
+/* ---------------- 会话存储 ---------------- */
+function loadSessions(){
+  try { return JSON.parse(localStorage.getItem('rm_sessions') || '[]'); }
+  catch(e){ return []; }
+}
+function saveSessions(){
+  // shown 只是"当前显示到哪"的临时状态，不落盘（否则中途刷新会看到半截消息）
+  const clean = sessions.map(s => ({...s, items: s.items.map(({shown, ...rest}) => rest)}));
+  localStorage.setItem('rm_sessions', JSON.stringify(clean));
+}
+let sessions = loadSessions();
+let curId = sessions[0] ? sessions[0].id : null;
+function cur(){ return sessions.find(s => s.id === curId) || null; }
+function newSession(){
+  bootOpener = pickOpener();   // 每开一个新对话，换一句
+  const s = {id: Date.now().toString(36), title: '新的对话', items: [],
+             opener: bootOpener};
+  sessions.unshift(s); curId = s.id; saveSessions(); render(); inp.focus();
+}
+function delSession(id, ev){
+  ev.stopPropagation();
+  sessions = sessions.filter(s => s.id !== id);
+  if (curId === id) curId = sessions[0] ? sessions[0].id : null;
+  saveSessions(); render();
+}
+
+/* ---------------- 渲染 ---------------- */
+function el(t, c, x){ const n = document.createElement(t); if (c) n.className = c;
+  if (x != null) n.textContent = x; return n; }
+
+function fmt(text){
+  const frag = document.createDocumentFragment();
+  String(text).split('```').forEach((part, i) => {
+    if (i % 2 === 1) {
+      const pre = el('pre');
+      pre.textContent = part.replace(/^[a-zA-Z0-9+#-]*\r?\n/, '');
+      frag.appendChild(pre);
+    } else if (part) {
+      const d = el('div'); d.textContent = part; frag.appendChild(d);
+    }
+  });
+  return frag;
+}
+
+function toolCard(t){
+  const box = el('div', 'tool');
+  box.classList.add('open');   // 默认展开：让"它真的动手了"一眼可见（点标题可折叠）
+  const head = el('div', 'th');
+  head.appendChild(el('span', null, '🔧'));
+  head.appendChild(el('b', null, t.name));
+  head.appendChild(el('code', null, JSON.stringify(t.args || {})));
+  head.appendChild(el('span', 'tag',
+    t.result == null ? '运行中…' : (t.result.length + ' 字')));
+  box.appendChild(head);
+  const body = el('div', 'body');
+  const pre = el('pre', null, t.result == null ? '（等待返回）' : t.result);
+  body.appendChild(pre); box.appendChild(body);
+  head.onclick = () => box.classList.toggle('open');
+  if (t.result && /工具出错|Error|error|拒绝/.test(t.result.slice(0, 80)))
+    box.classList.add('err');
+  return box;
+}
+
+function renderItem(it, live){
+  const row = el('div', 'row ' + (it.role === 'user' ? 'right' : 'left'));
+  const col = el('div', 'col');
+  col.appendChild(el('div', 'who', it.role === 'user' ? '你' : '阮梅'));
+
+  if (it.tools && it.tools.length) it.tools.forEach(t => col.appendChild(toolCard(t)));
+
+  const bub = el('div', 'bubble');
+  const body = (typeof it.shown === 'string') ? it.shown : it.text;   // shown 为空表示"还没轮到显示"
+  if (body) {
+    bub.appendChild(fmt(body));
+    col.appendChild(bub);
+  } else if (live && !it.sticker) {
+    bub.appendChild(el('div', null, '…'));
+    col.appendChild(bub);
+  }
+  if (it.sticker) {
+    const sb = el('div', 'bubble sticker-bubble');
+    const im = el('img', 'sticker-msg');
+    im.src = '/' + it.sticker;
+    im.alt = it.mood ? ('表情包 · ' + it.mood) : '表情包';
+    sb.appendChild(im);
+    col.appendChild(sb);
+  }
+
+  if (it.role === 'assistant' && it.text && it.done) {
+    const row2 = el('div', 'opts'); row2.style.marginTop = '7px';
+    const b = el('button', null, '🔊 重播');
+    b.onclick = () => { speechAbort(); speak(it.text, b); };   // 重播优先，先掐掉流式队列
+    row2.appendChild(b); col.appendChild(row2);
+  }
+  row.appendChild(col);
+  return row;
+}
+
+function render(){
+  log.innerHTML = '';
+  const s = cur();
+  $('title').textContent = s ? s.title : '新的对话';
+  if (s && s.items.length) s.items.forEach(it => log.appendChild(renderItem(it, false)));
+  else {
+    // 没有会话、或者会话里还没有消息：显示梅花 + 今日入口
+    const empty = el('div', 'col empty');
+    const bl = el('div', 'blossom');
+    bl.innerHTML = BLOSSOM_SVG;
+    empty.appendChild(bl);
+    empty.appendChild(el('div', 'hero-kicker', 'RUAN MEI · LOCAL AGENT'));
+    empty.appendChild(el('h2', 'hero-title', '今天想让我做点什么？'));
+    empty.appendChild(el('div', 'opener', (s && s.opener) || bootOpener));
+    const grid = el('div', 'quick-grid');
+    [
+      ['整理工作目录', '帮我看看工作目录里有什么，顺便整理一下'],
+      ['安排今天', '帮我安排今天的时间，先看看我的习惯'],
+      ['听点什么', '看看我最近爱听什么，然后放首歌'],
+      ['看系统状态', '查看一下系统状态，有没有什么异常']
+    ].forEach(([label, q]) => {
+      const b = el('button', 'quick', label);
+      b.onclick = () => quickSend(q);
+      grid.appendChild(b);
+    });
+    empty.appendChild(grid);
+    log.appendChild(empty);
+  }
+  renderSessions();
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderSessions(){
+  const box = $('sessions'); box.innerHTML = '';
+  if (!sessions.length) { box.appendChild(el('div', 'sect', '（还没有会话）')); return; }
+  const q = ($('sessSearch') && $('sessSearch').value || '').trim().toLowerCase();
+  const list = sessions.filter(s => !q || String(s.title || '').toLowerCase().includes(q));
+  if (!list.length) { box.appendChild(el('div', 'sect', '没有匹配的会话')); return; }
+  list.forEach(s => {
+    const d = el('div', 'sess' + (s.id === curId ? ' on' : ''));
+    d.appendChild(el('span', null, s.title));
+    const x = el('i', null, '✕'); x.onclick = e => delSession(s.id, e);
+    d.appendChild(x);
+    d.onclick = () => { curId = s.id; render(); document.body.classList.remove('nav-open'); };
+    box.appendChild(d);
+  });
+}
+
+/* ---------------- 外观 ---------------- */
+function setFavicon(href){
+  const l = $('favicon');
+  if (href) l.href = href;
+}
+/* 侧栏的两个参数各管一件事：
+     side_opacity（左栏不透明度）—— 主控。100 就是实心板子，越小背景越透进来；
+     sidebar_blend（边栏融入背景）—— 决定背景图/视频在侧栏里露多少、糊多少，
+        并且让侧栏左边缘比右边缘再透一点点（做出"融进背景"的过渡）。
+   之前只有一个 blend，拉到 100 时左边缘 alpha 会算成 0，整条侧栏被背景顶掉、
+   字看不清；所以把"多实"和"多融"拆成两个滑块。 */
+/* 视频背景的兜底循环。
+   v.loop = true 理论上就够，但实测在 WebView2 里放着放着会停在最后一帧不动
+   （4K/120fps 这种高码率素材尤其明显，解码一卡，媒体管线就不自己回头了）。
+   所以除了 loop 属性，再挂两个钩子：
+     ended      —— 真的播到结尾了，手动绕回 0 继续放；
+     stalled/暂停 —— 页面切前台、或者被谁暂停了，只要它还该播就重新 play()。
+   只在"文档可见"的时候抢，避免最小化时反复唤醒解码。 */
+function loopGuard(v){
+  /* 后端一断，播放器要不到后面的数据就会停在最后一帧，而且不会自己重试 ——
+     看起来就是"背景永远卡住了"。所以在卡住/出错的时候主动把资源重新挂一遍，
+    等于让视频原地重启（数据从缓存或后端重新取）。 */
+  const retry = () => {
+    if (v.dataset.hold === '1') return;
+    // 最多连试 5 次、每次间隔 3 秒：地址真的坏了也别在这儿无限重挂
+    const n = Number(v.dataset.retries || 0);
+    if (n >= 5) return;
+    v.dataset.retries = String(n + 1);
+    setTimeout(() => {
+      if (v.dataset.hold === '1') return;
+      if (v.paused || v.readyState < 2) {
+        const url = v.dataset.src;
+        if (!url) return;
+        try { v.src = ''; v.src = url; v.load(); v.play().catch(() => {}); } catch (e) {}
+      }
+    }, 3000);
+  };
+  v.dataset.src = v.getAttribute('src') || v.src || '';
+  v.dataset.retries = '0';
+  v.addEventListener('playing', () => { v.dataset.retries = '0'; });   // 播起来了就清零
+  v.addEventListener('ended', () => {
+    try { v.currentTime = 0; v.play().catch(() => {}); } catch (e) {}
+  });
+  v.addEventListener('pause', () => {
+    // hold=1 是我们自己为了省资源按下的暂停，别抢着把它叫醒
+    if (v.dataset.hold === '1') return;
+    if (v.loop && document.visibilityState === 'visible' && v.currentTime < v.duration - 0.05) {
+      v.play().catch(() => {});
+    }
+  });
+  v.addEventListener('stalled', retry);
+  v.addEventListener('error', retry);
+}
+
+/* 背景视频的"僵尸"看护（这是实测逼出来的）：
+   把后端杀掉再让视频继续放，会出现这样一种状态 ——
+   paused=false、readyState=2、缓冲里明明有整段数据（实测缓冲到 32 秒/全片），
+   但 currentTime 就是一动不动，而且既不触发 stalled 也不触发 error。
+   光靠事件是抓不到的，只能自己盯位置：连续 5 秒没往前走就重新挂一遍资源。
+   （重新挂会从头开始放，但从缓存里取是一瞬间的事，比永远冻在那一帧强。） */
+setInterval(() => {
+  const now = performance.now();
+  document.querySelectorAll('#bglayer video, #sidebg video').forEach(v => {
+    if (v.dataset.hold === '1' || v.paused || v.ended) {
+      v.dataset.lastPos = v.currentTime; v.dataset.lastT = now; return;
+    }
+    const pos = Number(v.currentTime);
+    const lastPos = Number(v.dataset.lastPos || 0);
+    if (!v.dataset.lastPos || Math.abs(pos - lastPos) > 0.2) {
+      v.dataset.lastPos = String(pos); v.dataset.lastT = String(now); return;
+    }
+    if (now - Number(v.dataset.lastT || now) > 5000) {
+      v.dataset.lastT = String(now);
+      v.dataset.retries = '0';                 // 位置不动是"卡死"，不是地址坏了，重置次数
+      const url = v.dataset.src;
+      if (url) {
+        try { v.src = ''; v.src = url; v.load(); v.play().catch(() => {}); } catch (e) {}
+      }
+    }
+  });
+}, 1000);
+
+function applySidebar(c, liveBlend, liveOp){
+  const blend = liveBlend != null ? liveBlend
+              : (c && c.sidebar_blend != null ? c.sidebar_blend : 55);
+  const opPct = liveOp != null ? liveOp
+              : (c && c.side_opacity != null ? c.side_opacity : 78);
+  const on = c && c.bg_type && c.bg_type !== 'none';
+  const k = blend / 100;
+  const op = opPct / 100;
+  const a1 = on ? Math.min(1, op + 0.06 * k) : 0.78;
+  const a0 = on ? Math.max(0, op - 0.18 * k) : 0.78;
+  const blur = on ? (16 - k * 9) : 16;
+  const line = on ? 0.09 * (1 - k * 0.85) : 0.09;
+  const s = document.documentElement.style;
+  s.setProperty('--side-a0', a0.toFixed(3));
+  s.setProperty('--side-a1', a1.toFixed(3));
+  s.setProperty('--side-blur', blur.toFixed(1) + 'px');
+  s.setProperty('--side-line', line.toFixed(3));
+  // 侧栏里那张背景副本：和页面用同一个遮罩浓度，左边缘才能和主区严丝合缝
+  s.setProperty('--side-scrim', ((c && c.bg_dim != null ? c.bg_dim : 70) / 100).toFixed(2));
+  const box = $('sidebg');
+  const want = on && blend >= 10 && c.bg_file ? c.bg_file : '';
+  s.setProperty('--side-on', want ? '1' : '0');
+  if (box.dataset.src !== want) {
+    box.dataset.src = want;
+    box.innerHTML = '';
+    if (want) {
+      if (c.bg_type === 'video') {
+        const v = document.createElement('video');
+        v.src = '/' + want; v.autoplay = true; v.muted = true;
+        v.loop = true; v.playsInline = true;
+        loopGuard(v);
+        box.appendChild(v); v.play().catch(() => {});
+      } else {
+        const i = new Image(); i.src = '/' + want; box.appendChild(i);
+      }
+    }
+  }
+  $('blend').value = blend;
+  $('sideOp').value = opPct;
+}
+function applyAppearance(c){
+  const layer = $('bglayer'); layer.innerHTML = '';
+  const dim = (c.bg_dim == null ? 70 : c.bg_dim);
+  $('scrim').style.opacity = (c.bg_type === 'none' ? 1 : dim / 100);
+  $('dim').value = dim;
+  const root = document.documentElement.style;
+  const footA = (c.foot_opacity == null ? 78 : c.foot_opacity) / 100;
+  const headA = (c.head_opacity == null ? 78 : c.head_opacity) / 100;
+  root.setProperty('--foot-a', footA.toFixed(3));
+  root.setProperty('--head-a', headA.toFixed(3));
+  $('footOp').value = Math.round(footA * 100);
+  $('headOp').value = Math.round(headA * 100);
+  applySidebar(c);
+  if (c.bg_type === 'image' && c.bg_file) {
+    const img = new Image(); img.src = '/' + c.bg_file; layer.appendChild(img);
+  } else if (c.bg_type === 'video' && c.bg_file) {
+    const v = document.createElement('video');
+    v.src = '/' + c.bg_file; v.autoplay = true; v.muted = true;
+    v.loop = true; v.playsInline = true; layer.appendChild(v);
+    loopGuard(v);
+    v.play().catch(() => {});
+  }
+  const av = $('avatar');
+  if (c.icon) { av.src = '/' + c.icon; av.style.display = ''; setFavicon('/' + c.icon); }
+  else {
+    av.src = DEFAULT_FAVICON; av.style.display = '';
+    setFavicon(DEFAULT_FAVICON);
+  }
+  $('wd').textContent = c.workdir;
+  if ($('wdSide')) $('wdSide').textContent = c.workdir || '—';
+  $('wdIn').value = c.workdir;
+  $('rdIn').value = (c.extra_read || []).join('; ');
+  $('hint2').textContent = c.vision_model
+      ? '视觉模型 ' + c.vision_model + ' · 可以直接看图'
+      : '未装视觉模型：能识别图上文字，不能描述画面';
+  $('assetsDir').textContent = c.assets_dir;
+  renderPickers(c);
+}
+function renderPickers(c){
+  const bg = $('bgSel'); bg.innerHTML = '';
+  bg.appendChild(new Option('不使用背景', 'none'));
+  (c.assets || []).forEach(a => {
+    if ((a.kind === 'image' || a.kind === 'video') && !/-thumb\./i.test(a.name))
+      bg.appendChild(new Option((a.kind === 'video' ? '🎬 ' : '🖼 ') + a.name, a.path));
+  });
+  bg.value = c.bg_type === 'none' ? 'none' : (c.bg_file || 'none');
+  if (bg.value !== (c.bg_type === 'none' ? 'none' : c.bg_file)) bg.value = 'none';
+
+  const ic = $('iconSel'); ic.innerHTML = '';
+  ic.appendChild(new Option('默认（青蓝梅花）', ''));
+  (c.assets || []).forEach(a => {
+    if ((a.kind === 'image' || a.kind === 'icon') && !/-thumb\./i.test(a.name))
+      ic.appendChild(new Option('🖼 ' + a.name, a.path));
+  });
+  ic.value = c.icon || '';
+
+  const prev = $('preview'); prev.innerHTML = '';
+  if (c.bg_type === 'none' || !c.bg_file) prev.appendChild(el('div', null, '（无背景）'));
+  else if (c.bg_type === 'video') {
+    const v = document.createElement('video');
+    v.src = '/' + c.bg_file; v.muted = true; v.loop = true; v.autoplay = true;
+    prev.appendChild(v);
+  } else {
+    const i = new Image(); i.src = '/' + c.bg_file; prev.appendChild(i);
+  }
+  renderBgLibrary(c);
+  applyRegionBackgrounds();
+}
+function regionBgs(){
+  try { return JSON.parse(localStorage.getItem('rm_bg_regions') || '{}'); }
+  catch (e) { return {}; }
+}
+function applyRegionBackgrounds(){
+  const m = regionBgs();
+  const root = document.documentElement.style;
+  root.setProperty('--region-chat-bg', m.chat
+    ? `linear-gradient(180deg,rgba(4,12,10,.72),rgba(4,12,10,.88)),url('/${m.chat}')`
+    : 'none');
+  root.setProperty('--region-side-bg', m.side ? `url('/${m.side}')` : 'none');
+  root.setProperty('--region-rail-bg', m.rail ? `url('/${m.rail}')` : 'none');
+}
+function markBgTiles(c){
+  const region = $('bgRegion') ? $('bgRegion').value : 'global';
+  const m = regionBgs();
+  const current = region === 'global'
+    ? ((c && c.bg_type !== 'none' && c.bg_file) ? c.bg_file : '')
+    : (m[region] || '');
+  document.querySelectorAll('#bgLibrary .bg-tile').forEach(b => {
+    b.classList.toggle('on', b.dataset.path === current);
+  });
+}
+function renderBgLibrary(c){
+  const box = $('bgLibrary');
+  if (!box) return;
+  box.innerHTML = '';
+  const pics = (c.assets || [])
+    .filter(a => /^bg-lib-\d+\.jpg$/i.test(a.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  pics.forEach(a => {
+    const id = (a.name.match(/\d+/) || [''])[0];
+    const b = el('button', 'bg-tile');
+    b.dataset.path = a.path;
+    b.title = '背景 ' + id;
+    const im = new Image();
+    im.src = '/' + a.path.replace(/\.jpg$/i, '-thumb.jpg');
+    im.alt = '背景 ' + id;
+    b.appendChild(im);
+    b.appendChild(el('span', null, id));
+    b.onclick = () => setRegionBg(a.path);
+    box.appendChild(b);
+  });
+  markBgTiles(c);
+}
+function setRegionBg(path){
+  const region = $('bgRegion') ? $('bgRegion').value : 'global';
+  if (region === 'global') {
+    const sel = $('bgSel');
+    sel.value = path;
+    sel.dispatchEvent(new Event('change'));
+  } else {
+    const m = regionBgs();
+    m[region] = path;
+    localStorage.setItem('rm_bg_regions', JSON.stringify(m));
+    applyRegionBackgrounds();
+    markBgTiles(cfg || {});
+    toast('已设置' + ({chat:'聊天区', side:'左侧栏', rail:'右侧栏'}[region] || '') + '背景');
+  }
+}
+async function api(path, body){
+  const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+async function loadConfig(){
+  cfg = await (await fetch('/api/config')).json();
+  applyAppearance(cfg);
+}
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* ---------------- 状态检查 ---------------- */
+let backendDown = false;      // 上一次探测时后端是不是不在
+async function check(){
+  try {
+    const j = await (await fetch('/api/status')).json();
+    $('dotModel').className = 'dot ' + (j.ollama ? 'on' : 'off');
+    $('sModel').textContent = j.ollama ? '模型 就绪' : '模型 未响应';
+    $('dotTts').className = 'dot ' + (j.tts ? 'on' : 'off');
+    $('sTts').textContent = j.tts ? '语音 就绪' : '语音 未启动';
+    if ($('railState')) $('railState').innerHTML =
+      '<i></i>' + (j.ollama && j.tts ? '待命中' : '部分离线');
+    $('hint').textContent = j.ollama ? '就绪' : 'Ollama 未响应（检查 ollama 是否在跑）';
+    /* 后端刚恢复：把背景重建一遍。
+       后端一没，播放器要不到下一段数据就停在最后一帧；等后端回来，
+       光靠它自己不会重新请求 —— 看起来就是"背景永远卡住了"。
+       这里重新拉一次外观配置，等于把背景视频原地重启。 */
+    if (backendDown) {
+      backendDown = false;
+      try { await loadConfig(); toast('后端已恢复，背景重新加载'); } catch (e) {}
+    }
+  } catch(e) {
+    backendDown = true;
+    $('dotModel').className = $('dotTts').className = 'dot off';
+    $('sModel').textContent = '模型 未连接';
+    $('sTts').textContent = '语音 未连接';
+    if ($('railState')) $('railState').innerHTML = '<i></i>离线';
+    // 后端整个没了（不是 Ollama 没起）。背景视频这时会停在最后一帧 ——
+    // 说清楚原因，免得看起来像"界面卡住了"。
+    $('hint').textContent = '后端没在运行（窗口进程会自动把它拉起来）';
+  }
+}
+
+/* ---------------- 语音 ---------------- */
+function sayState(s, level){
+  const e = $('sayState');
+  if (!e) return;
+  e.textContent = s || '';
+  e.className = 'saystate' + (level ? ' ' + level : '');
+}
+
+/* 播放一段已经准备好的音频；被浏览器拦下就记下来，等下一次点击补播 */
+async function playUrl(url){
+  player.pause();
+  player.src = url;
+  player.onended = () => { sayState(''); };
+  try {
+    await player.play();
+    blockedAudio = null;
+    sayState('朗读中…', 'live');
+  } catch (e) {
+    blockedAudio = url;
+    sayState('点一下窗口就开始读', 'warn');
+    toast('浏览器拦住了自动播放：在窗口里点一下任意位置就会接着读');
+  }
+}
+
+/* 合成一段文字并朗读。注意：这个函数只管“读”，开关的判断放在调用处，
+   这样手动点「重播」永远有效，不受自动朗读开关影响。 */
+async function speak(text, btn, userText=''){
+  if (!text.trim()) return;
+  const tone = pickTone(userText, text);
+  const key = ttsKey(text, tone);
+  if (btn) { btn.textContent = '合成中…'; btn.disabled = true; }
+  const bgTok = bgHoldStart();
+  try {
+    const hit = cacheGet(key);
+    if (hit) {
+      // 同一句话 + 同一个语气：直接用上次的结果，不再合成一遍
+      if (btn) btn.textContent = '朗读中…';
+      if (hit.kind === 'url') await playUrl(hit.url);
+      else await playBufferOnce(hit.buffer);
+    } else {
+      // 同流式那边一样加硬超时：后端预热时不能让重播一直吊着
+      const ac = new AbortController();
+      const tid = setTimeout(() => { try { ac.abort(); } catch (e) {} }, 120000);
+      const r = await fetch('/api/tts', {method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, voice: 'ruanmei:' + tone}),
+        signal: ac.signal}).finally(() => clearTimeout(tid));
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try { msg = (await r.json()).error || msg; } catch (e) {}
+        throw new Error(msg);
+      }
+      const url = URL.createObjectURL(await r.blob());
+      cachePut(key, {kind: 'url', url});
+      await playUrl(url);
+    }
+  } catch(e) {
+    sayState('语音失败：' + String(e.message).slice(0, 30), 'warn');
+    toast('语音合成失败：' + String(e.message).slice(0, 80));
+  }
+  bgHoldEndNow(bgTok);
+  if (btn) { btn.textContent = '🔊 重播'; btn.disabled = false; }
+}
+
+/* 用 Web Audio 把一条已经解码好的音频放完（缓存命中时走这里，不用等合成） */
+function playBufferOnce(buffer){
+  return new Promise(resolve => {
+    const ctx = speechCtx();
+    if (!ctx) { resolve(); return; }
+    const t = trimSilence(buffer);
+    const startSec = t.start / buffer.sampleRate;
+    const dur = Math.max(0.05, (t.end - t.start) / buffer.sampleRate);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(ctx.destination);
+    src.onended = () => resolve();
+    sayState('朗读中…', 'live');
+    try { src.start(ctx.currentTime + 0.03, startSec, dur); }
+    catch (e) { resolve(); return; }
+    setTimeout(resolve, (dur + 1.5) * 1000);      // 兜底：万一 onended 没来
+  });
+}
+
+/* ---------------- 流式朗读 ----------------
+   回复还在生成的时候就开始读：按句子切块 → 边合成边播。
+   要点：
+     1) 第一块只要第一句 → 开口快；之后的块切大（150 字），接缝更少、韵律更完整；
+     2) 允许两段同时合成 → 永远有一段在排队，不会等；
+     3) 用序号保序（先合成完的不一定先播，顺序必须跟文字一致）；
+     4) 用 Web Audio 精确排期播放，块与块之间是「掐掉头尾静音 + 固定停顿」，
+        不是"这一段播完再加载下一段"——后者那段加载空白不可控，就是卡顿的来源；
+     5) 代码块不念，切块时避开还没闭合的 ``` 区域。 */
+const SP_FIRST = 40;    // 第一块：第一句，最多这么多字
+const SP_MINLEN = 70;   // 第一块之后，攒够这么多字才切下一块（接缝越少越自然）
+const SP_CHUNK = 160;   // 每块的上限
+/* 每块最多比上一块大这么多倍。合成速度（约 3.4 字/秒播放 vs 7 字/秒合成，
+   64 步时）决定了这个上限：再大就会出现"上一块播完了、下一块还在合"的空档。 */
+const SP_GROW  = 1.5;
+const SP_HARD  = 260;   // 一直没句末标点时最多攒到这里
+const SP_CONC  = 2;     // 同时在合成几段
+const SP_SEAM  = 0.22;  // 块与块之间的停顿（秒），跟后端内部分句的 0.20 对齐
+const SP_FADE  = 0.025; // 每块头尾的淡入淡出，消除咔哒声
+
+const sp = {on: false, buf: '', seq: 0, next: 0, audio: new Map(), nodes: [],
+            active: 0, failed: 0, firstAt: 0, t0: 0, chunks: 0,
+            ctx: null, nextAt: 0, endTimer: 0, lastLen: 0,
+            parts: [], revealed: 0, revealTimers: [], revealFn: null,
+            decoded: new Map(), fullText: '', cached: false,
+            tone: '', userText: '',
+            bgTok: 0, released: false, watch: 0};
+
+/* ---------------- 朗读缓存 ----------------
+   为什么要缓存：以前点「重播」是**重新合成一遍**（再打一次 /api/tts，等好几秒），
+   同一句话读第二遍却要重新算，很蠢。现在按「语气 + 文本」缓存：
+     kind:'url'    —— 整段合成的 wav（<audio> 播的那个）
+     kind:'buffer' —— 流式朗读时一块块拼起来的那条（Web Audio 直接播，零等待）
+   缓存满了就丢最久没用的那条，顺手把 objectURL 释放掉（以前从来没 revoke，白占内存）。 */
+const ttsCache = new Map();
+const TTS_CACHE_MAX = 12;
+function ttsKey(text, tone){ return (tone || pickTone('', text)) + '|' + text; }
+function cacheGet(key){
+  const v = ttsCache.get(key);
+  if (v) { ttsCache.delete(key); ttsCache.set(key, v); }   // 挪到队尾 = 最近用过
+  return v;
+}
+function cacheDrop(entry){
+  if (entry && entry.kind === 'url') { try { URL.revokeObjectURL(entry.url); } catch (e) {} }
+}
+function cachePut(key, entry){
+  cacheDrop(ttsCache.get(key));
+  ttsCache.set(key, entry);
+  while (ttsCache.size > TTS_CACHE_MAX) {
+    const k = ttsCache.keys().next().value;
+    cacheDrop(ttsCache.get(k));
+    ttsCache.delete(k);
+  }
+}
+
+/* 朗读时让背景视频让路：TTS 在显卡上合成，跟背景视频解码抢资源，
+   实测回答的那十几秒里背景会一顿一顿。让路 = 把那两个 <video> 按暂停，
+   说完自动接着放（loopGuard 会认这个 hold 标记，不会抢着把它叫醒）。 */
+let pauseBgWhileSpeak = localStorage.getItem('rm_pausebg') !== '0';
+let bgToken = 0;
+/* 用"代次"而不是计数器：新一轮朗读会把 bgToken 加一，
+   上一轮留下的延时恢复任务发现代次变了就不动手 —— 否则很容易出现
+"刚开始念下一句、上一句的定时器把背景又放开了"这种打架。 */
+function bgHoldStart(){
+  const t = ++bgToken;
+  if (!pauseBgWhileSpeak) return t;
+  document.querySelectorAll('#bglayer video, #sidebg video').forEach(v => {
+    try {
+      v.dataset.hold = '1';
+      if (!v.paused) v.pause();
+    } catch (e) {}
+  });
+  /* 兜底：万一合成那条链路整个卡死（接口不返回、队列没人推进），
+     背景不能被按住一整天。60 秒后强制放开。 */
+  setTimeout(() => { if (t === bgToken) bgVideoResume(); }, 60000);
+  return t;
+}
+function bgHoldEndNow(token){
+  if (token == null || token === bgToken) bgVideoResume();
+}
+function bgHoldEndAfter(ms, token){
+  setTimeout(() => { if (token === bgToken) bgVideoResume(); }, Math.max(0, ms));
+}
+function bgVideoResume(){
+  document.querySelectorAll('#bglayer video, #sidebg video').forEach(v => {
+    try {
+      if (v.dataset.hold === '1') { delete v.dataset.hold; v.play().catch(() => {}); }
+    } catch (e) {}
+  });
+}
+
+/* 文字跟着语音出场：第 n 块开始播之前，把它对应的文字显示出来。
+   这样不会出现"字早就写完了、声音还在慢慢念"的分裂感。 */
+function revealUpTo(n){
+  if (!sp.revealFn || n <= sp.revealed) return;
+  sp.revealed = Math.min(n, sp.parts.length);
+  sp.revealFn(sp.parts.slice(0, sp.revealed).join(''));
+}
+function scheduleReveal(n, at){
+  if (!sp.revealFn || !sp.ctx) return;
+  const delay = Math.max(0, (at - sp.ctx.currentTime) * 1000 - 250);
+  sp.revealTimers.push(setTimeout(() => revealUpTo(n), delay));
+}
+
+/* 已经出现奇数个 ``` -> 现在处在代码块内部 */
+function fenceOdd(s){
+  let n = 0, i = 0;
+  while ((i = s.indexOf('```', i)) >= 0) { n++; i += 3; }
+  return n % 2 === 1;
+}
+
+function speechAbort(){
+  sp.on = false;
+  sp.nodes.forEach(n => { try { n.stop(); } catch (e) {} });
+  sp.nodes = [];
+  sp.audio.clear();
+  sp.buf = ''; sp.active = 0; sp.nextAt = 0;
+  clearTimeout(sp.endTimer);
+  sp.revealTimers.forEach(t => clearTimeout(t));
+  sp.revealTimers = [];
+  sp.parts = []; sp.revealed = 0;
+  sp.decoded = new Map(); sp.fullText = ''; sp.cached = false;
+  sp.tone = ''; sp.userText = '';
+  if (sp.watch) { clearInterval(sp.watch); sp.watch = 0; }
+  bgHoldEndNow(sp.bgTok);
+  player.pause();
+}
+
+function speechBegin(userText=''){
+  speechAbort();
+  sp.on = true; sp.seq = 0; sp.next = 0; sp.active = 0;
+  sp.failed = 0; sp.firstAt = 0; sp.chunks = 0; sp.t0 = performance.now();
+  sp.nextAt = 0;
+  sp.parts = []; sp.revealed = 0;
+  sp.userText = String(userText || '');
+  sp.bgTok = bgHoldStart();          // 朗读期间让背景视频让路
+  sp.released = false; sp.cached = false;
+  /* 看门狗：流式模式下文字是"跟着语音出场"的，语音要是卡住不来，
+     文字就一个字都不显示 —— 看起来就是"她没回话"（实测过：刚开机语音模型
+     还在预热，第一次请求能卡好几分钟）。所以 8 秒还没出声就先把已有的文字推给你看。 */
+  clearInterval(sp.watch);
+  sp.watch = setInterval(() => {
+    if (!sp.on) { clearInterval(sp.watch); sp.watch = 0; return; }
+    if (sp.firstAt || !sp.parts.length) return;
+    if (performance.now() - sp.t0 < 8000) return;
+    revealUpTo(sp.parts.length);
+    sayState('语音还在准备…先把文字给你看', 'warn');
+  }, 2000);
+  sayState('准备语音…', 'warn');
+}
+
+/* Web Audio 的播放上下文。浏览器同样要求先有一次用户操作，
+   所以它一开始可能是 suspended，这里顺便试着唤醒。 */
+function speechCtx(){
+  if (!sp.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    sp.ctx = new AC();
+  }
+  if (sp.ctx.state === 'suspended') sp.ctx.resume().catch(() => {});
+  return sp.ctx;
+}
+
+/* 掐掉头尾静音，只留 15ms 余量——这是接缝听起来干不干净的关键 */
+function trimSilence(buffer){
+  const d = buffer.getChannelData(0);
+  const thr = 0.006;
+  let s = 0, e = d.length - 1;
+  while (s < d.length && Math.abs(d[s]) < thr) s++;
+  while (e > s && Math.abs(d[e]) < thr) e--;
+  if (e <= s) return {start: 0, end: d.length};
+  const pad = Math.round(buffer.sampleRate * 0.015);
+  return {start: Math.max(0, s - pad), end: Math.min(d.length, e + pad + 1)};
+}
+
+/* 从缓冲区里切一块出来；force=true 表示收尾，剩余的全给它 */
+function takeChunk(force){
+  const s = sp.buf;
+  if (!s.trim()) return null;
+  const first = sp.chunks === 0;
+  /* 块大小要逐块放大：合成速度大约是播放速度的 2.5 倍，
+     所以下一块最多比上一块大 2.5 倍才不会"播完了还在合"。
+     这里取 1.8 倍留余量——第一句仍然短，开口快；越往后块越大，接缝越少。 */
+  const limit = first ? SP_FIRST
+                      : Math.min(SP_CHUNK,
+                                 Math.max(SP_FIRST, Math.round(sp.lastLen * SP_GROW)));
+  let cut = -1;
+  if (force) {
+    /* 收尾：剩下的全部送出去。
+       必须直接取整段——之前走的是下面那套「按标点切」的逻辑，末尾只切出一小段，
+       剩下的永远留在缓冲区里没被合成（实测 103 个字只念了 46 个）。 */
+    const rest = s.trim();
+    sp.buf = '';
+    sp.lastLen = rest.length;
+    return rest || null;
+  }
+  const ends = [];
+  const re = /[。！？!?…；;]/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const end = m.index + 1;
+    if (end > limit) break;
+    ends.push(end);
+  }
+  if (ends.length) {
+    // 第一块只要第一句（太短就顺延到第二句），后面的尽量打包到 limit
+    cut = first ? (ends.find(e => e >= 8) || ends[0]) : ends[ends.length - 1];
+  }
+  if (cut < 0 && s.length > limit) {
+    const k = Math.max(s.lastIndexOf('，', limit), s.lastIndexOf('、', limit),
+                       s.lastIndexOf('\n', limit));
+    cut = k >= 4 ? k + 1 : Math.min(s.length, SP_HARD);
+  }
+  if (cut < 0) return null;
+  /* 除了第一块，其他块要攒够 SP_MINLEN 才切——否则一句话就被切成一块，
+     每句话都成了独立合成，句与句之间会听出"重新起头"的断感。 */
+  if (!first && cut < SP_MINLEN && s.length < SP_HARD) return null;
+  // 别切在代码块中间，否则前半截的 ``` 落到下一块，清理逻辑认不出整块
+  if (!force && fenceOdd(s.slice(0, cut)) && s.length < SP_HARD) return null;
+  const chunk = s.slice(0, cut);
+  sp.buf = s.slice(cut);
+  sp.lastLen = chunk.trim().length;
+  return chunk;
+}
+
+async function synthChunk(text, seq, tone){
+  sp.parts[seq] = text;                   // 记下来，等它开始播的时候再把文字显示出来
+  while (sp.active >= SP_CONC && sp.on) await new Promise(r => setTimeout(r, 50));
+  if (!sp.on) return;
+  sp.active++;
+  // 合成请求加硬超时：以前没超时，后端预热/卡住时这一块会永远等下去，
+  // 而流式模式下文字是跟着语音出场的，于是就"她一句话都没回"。
+  const ac = new AbortController();
+  const tid = setTimeout(() => { try { ac.abort(); } catch (e) {} }, 120000);
+  try {
+    const r = await fetch('/api/tts', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text, voice: 'ruanmei:' + (tone || pickTone(sp.userText, text))}),
+      signal: ac.signal});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    sp.audio.set(seq, await r.arrayBuffer());
+  } catch (e) {
+    sp.audio.set(seq, null);      // 这一段失败就跳过，别卡住整条队列
+    sp.failed++;
+  } finally {
+    clearTimeout(tid);
+    sp.active--;
+    pumpSpeech();
+    speechMaybeDone();
+  }
+}
+
+/* 队列排空且没有在合成的了 -> 把状态清掉 */
+function speechMaybeDone(){
+  if (!sp.on) return;
+  if (sp.active === 0 && sp.next >= sp.seq) {
+    sayState(sp.failed ? ('有 ' + sp.failed + ' 段语音没合成成功') : '',
+             sp.failed ? 'warn' : '');
+    /* 兜底显示：只有"音频也已经播完"（或者压根没排到音频）时才把剩下的文字一次性显出来，
+       否则会在语音还在播的时候提前把全文露出来，同步就白做了。 */
+    const ctx = sp.ctx;
+    const pending = ctx && sp.nextAt > ctx.currentTime + 0.05;
+    if (!pending) revealUpTo(sp.parts.length);
+    cacheStreamedSpeech();        // 这一条读完就拼一份缓存，下次「重播」不用再合成
+    // 整条放完再把背景视频放开（不是合成完就放，否则后半句还会跟视频抢资源）
+    if (!sp.released) {
+      sp.released = true;
+      const left = ctx ? (sp.nextAt - ctx.currentTime) * 1000 : 0;
+      bgHoldEndAfter(left + 300, sp.bgTok);
+    }
+  }
+}
+
+/* 把这次流式朗读的每一块按顺序拼成一条音频，存进缓存。
+   块与块之间补上和播放时一样的停顿，重播听起来才跟第一次一致。 */
+function cacheStreamedSpeech(){
+  if (sp.cached || !sp.fullText || !sp.ctx) return;
+  const bufs = [];
+  // 按序号取已经解码好的块，而不是按 sp.seq 数数 —— 序号才是真实存在的那些，
+  // 中间有块合成失败也照样能拼（缺的那块跳过）。
+  [...sp.decoded.keys()].sort((a, b) => a - b).forEach(k => {
+    const b = sp.decoded.get(k);
+    if (b) bufs.push(b);
+  });
+  if (!bufs.length) return;
+  sp.cached = true;
+  try {
+    const sr = bufs[0].sampleRate;
+    const seam = Math.round(sr * SP_SEAM);
+    const total = bufs.reduce((n, b) => n + b.length, 0) + seam * (bufs.length - 1);
+    const out = sp.ctx.createBuffer(1, total, sr);
+    const ch = out.getChannelData(0);
+    let off = 0;
+    bufs.forEach((b, i) => {
+      ch.set(b.getChannelData(0), off);
+      off += b.length;
+      if (i < bufs.length - 1) off += seam;
+    });
+    cachePut(ttsKey(sp.fullText, sp.tone), {kind: 'buffer', buffer: out});
+  } catch (e) {
+    sp.cached = false;          // 拼不出来就算了，下次重播老老实实重新合成
+  }
+}
+
+/* 把一块音频排到时间轴上：接着上一块结束的位置 + 固定停顿。
+   这样块与块之间是采样级精确的，不存在"等 JS 加载下一段"的空档。 */
+function scheduleBuffer(buffer, seq){
+  const ctx = sp.ctx;
+  const {start, end} = trimSilence(buffer);
+  /* 注意：trimSilence 给的是采样索引，而 AudioBufferSourceNode.start() 的
+     offset/duration 都要「秒」。之前直接把采样索引当秒传进去，等于让播放从
+     "第几千秒"开始 —— 超出音频长度，整块放出来是静音（这就是"只念最后一句"
+     和"必须点重播才有声音"的根因）。 */
+  const startSec = start / buffer.sampleRate;
+  const dur = Math.max(0.05, (end - start) / buffer.sampleRate);
+  const at = Math.max(ctx.currentTime + 0.06, sp.nextAt);
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  const g = ctx.createGain();
+  const f = Math.min(SP_FADE, dur / 3);
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(1, at + f);
+  g.gain.setValueAtTime(1, at + Math.max(f, dur - f));
+  g.gain.linearRampToValueAtTime(0, at + dur);
+  src.connect(g); g.connect(ctx.destination);
+  src.start(at, startSec, dur);
+  sp.nodes.push(src);
+  if (sp.nodes.length > 24) sp.nodes.splice(0, sp.nodes.length - 24);
+  sp.nextAt = at + dur + SP_SEAM;
+  scheduleReveal(seq + 1, at);            // 这一块开始播之前把文字显出来
+  if (!sp.firstAt) {
+    sp.firstAt = performance.now();
+    console.log('[流式语音] 第一段开播：距发送 ' + ((sp.firstAt - sp.t0) / 1000).toFixed(1) + ' 秒');
+  }
+  sayState('朗读中…', 'live');
+  clearTimeout(sp.endTimer);
+  const rest = Math.max(0, (sp.nextAt - ctx.currentTime) * 1000) + 300;
+  sp.endTimer = setTimeout(() => { speechMaybeDone(); }, rest);
+}
+
+/* 严格按序号取；没轮到的先等着。不等播放结束，排完就继续排下一块。 */
+let spPumping = false;
+async function pumpSpeech(){
+  if (spPumping || !sp.on) return;
+  spPumping = true;
+  try {
+    while (sp.on) {
+      if (!sp.audio.has(sp.next)) break;
+      const ab = sp.audio.get(sp.next);
+      sp.audio.delete(sp.next);
+      sp.next++;
+      if (!ab) { revealUpTo(sp.next); continue; }   // 这块合成失败，文字直接显示、跳过播放
+      const ctx = speechCtx();
+      if (!ctx) { sayState(''); break; }       // 浏览器不支持 Web Audio
+      if (ctx.state === 'suspended') {
+        await ctx.resume().catch(() => {});
+        if (ctx.state === 'suspended') {       // 还没被用户点过，先存着
+          sp.audio.set(sp.next - 1, ab); sp.next--;
+          blockedAudio = true; sayState('点一下窗口就开始读', 'warn');
+          break;
+        }
+      }
+      let buffer;
+      try { buffer = await ctx.decodeAudioData(ab); }
+      catch (e) { continue; }
+      if (!sp.on) break;
+      sp.decoded.set(sp.next - 1, buffer);   // 留着，读完拼成一条缓存给「重播」用
+      scheduleBuffer(buffer, sp.next - 1);
+    }
+  } finally {
+    spPumping = false;
+  }
+}
+
+function speechFeed(t){
+  if (!sp.on) return;
+  sp.buf += t;
+  if (!sp.tone) sp.tone = pickTone(sp.userText, t);
+  for (let k = 0; k < 8; k++) {
+    const c = takeChunk(false);
+    if (!c) break;
+    if (c.trim().length < 4) { sp.buf = c + sp.buf; break; }
+    sp.chunks++;
+    synthChunk(c, sp.seq++, sp.tone);
+  }
+}
+
+function speechFinish(){
+  if (!sp.on) return;
+  const rest = takeChunk(true);
+  if (rest && rest.trim()) {
+    if (!sp.tone) sp.tone = pickTone(sp.userText, rest);
+    sp.chunks++;
+    synthChunk(rest, sp.seq++, sp.tone);
+  }
+}
+
+/* 用户第一次点击/按键时，把被拦下的那条补播掉 */
+function unlockAudio(){
+  if (sp.ctx && sp.ctx.state === 'suspended') sp.ctx.resume().catch(() => {});
+  if (blockedAudio) {
+    blockedAudio = null;
+    pumpSpeech();                  // 流式的队列接着往下排
+  }
+  document.removeEventListener('pointerdown', unlockAudio, true);
+  document.removeEventListener('keydown', unlockAudio, true);
+}
+document.addEventListener('pointerdown', unlockAudio, true);
+document.addEventListener('keydown', unlockAudio, true);
+
+/* ---------------- 发送 / agent 循环 ---------------- */
+/* ---------------- 唤醒词 ---------------- */
+const WAKE = '亲爱的';
+const WAKE_LINES = [
+  '在的，你说。',
+  '嗯，我在听。',
+  '我在。有什么要我做的？',
+  '来了，说吧。',
+];
+function wakeCheck(text){
+  const t = (text || '').trim();
+  if (!t.startsWith(WAKE)) return {wake: false, rest: t};
+  // 去掉唤醒词和紧跟的标点，剩下的才算"要求"
+  const rest = t.slice(WAKE.length).replace(/^[\s，,。、！!？?~～：:]+/, '').trim();
+  return {wake: true, rest};
+}
+function wakeAnswer(){
+  if (!cur()) newSession();
+  const s = cur();
+  s.items.push({role: 'user', text: WAKE});
+  const line = WAKE_LINES[Math.floor(Math.random() * WAKE_LINES.length)];
+  s.items.push({role: 'assistant', text: line, tools: [], done: true});
+  if (s.title === '新的对话') s.title = '（唤醒）' + WAKE;
+  saveSessions(); render();
+  sayState('');
+  if (autoSpeak) speak(line, null);
+  toast('听到「' + WAKE + '」了 —— 直接说要求就行');
+}
+
+function quickSend(text){
+  if (!text) return;
+  document.body.classList.remove('nav-open');
+  const i = $('inp');
+  if (!i) return;
+  i.value = text;
+  i.focus();
+  send();
+}
+
+async function send(){
+  const text = inp.value.trim();
+  if (!text || busy) return;
+  /* 唤醒词：说到「亲爱的」就是在叫梅梅。
+     只叫一声（后面没别的内容）时不该去打扰模型 —— 直接答应，快而且不会答偏；
+     后面带了要求就照常走完整流程，另外在服务端加一句提示，免得它把这个称呼理解成
+     "用户在自称亲爱的"（她在人设里本来就管主人叫亲爱的）。 */
+  const wk = wakeCheck(text);
+  if (wk.wake && !wk.rest) { inp.value = ''; inp.style.height = '56px'; wakeAnswer(); return; }
+  if (!cur()) { newSession(); }
+  speechAbort(); sayState('');         // 新消息进来时先停下上一条的朗读
+  busy = true; inp.value = ''; inp.style.height = '56px'; $('send').disabled = true;
+  if (autoSpeak && streamSpeak) speechBegin(text);   // 边生成边读
+
+  const s = cur();
+  s.items.push({role: 'user', text});
+  if (s.title === '新的对话') s.title = text.slice(0, 18);
+  const asst = {role: 'assistant', text: '', tools: [], done: false};
+  asst.shown = '';                       // 已经显示出来的部分（跟随语音）
+  s.items.push(asst);
+  saveSessions(); render();
+  let row = log.lastElementChild, col = row.firstElementChild;
+  const drawBubble = () => {
+    const bub = row.querySelector('.bubble');
+    if (!bub) return;
+    bub.innerHTML = '';
+    bub.appendChild(fmt(asst.shown || '…'));
+    log.scrollTop = log.scrollHeight;
+  };
+  if (autoSpeak && streamSpeak) {
+    // 文字由语音驱动：每块开始播之前才显示对应文字
+    sp.revealFn = (shown) => { asst.shown = shown; drawBubble(); };
+  } else {
+    sp.revealFn = null;
+    asst.shown = '';
+  }
+
+  const history = s.items.filter(i => i.role === 'user' || (i.role === 'assistant' && i.done))
+                          .map(i => ({role: i.role, content: i.text}));
+
+  try {
+    const r = await fetch('/api/agent', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({messages: history, think: false})});
+    const reader = r.body.getReader(); const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const ln of lines) {
+        if (!ln.trim()) continue;
+        let j; try { j = JSON.parse(ln); } catch(e) { continue; }
+        if (j.type === 'text') {
+          asst.text += j.content;
+          if (autoSpeak && streamSpeak) {
+            speechFeed(j.content);          // 边收边切块送合成；文字由语音那边按节奏显示
+          } else {
+            asst.shown = asst.text;
+            drawBubble();
+          }
+        } else if (j.type === 'tool') {
+          asst.tools.push({name: j.name, args: j.args, result: null});
+          row.remove();
+          const fresh = renderItem(asst, true);
+          log.appendChild(fresh);
+          row = fresh; col = fresh.firstElementChild;
+          const cards = row.querySelectorAll('.tool');
+          if (cards.length) cards[cards.length - 1].classList.add('open');
+        } else if (j.type === 'tool_result') {
+          for (let i = asst.tools.length - 1; i >= 0; i--) {
+            if (asst.tools[i].name === j.name && asst.tools[i].result == null) {
+              asst.tools[i].result = j.result; break;
+            }
+          }
+          const cards = row.querySelectorAll('.tool');
+          const last = asst.tools[asst.tools.length - 1];
+          if (cards.length && last) {
+            const c = cards[cards.length - 1];
+            c.querySelector('pre').textContent = last.result;
+            c.querySelector('.tag').textContent = last.result.length + ' 字';
+          }
+        } else if (j.type === 'error') {
+          asst.text += (asst.text ? '\n' : '') + '（出错：' + j.content + '）';
+          asst.shown = asst.text;
+          drawBubble();
+        }
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+  } catch(e) {
+    asst.text += (asst.text ? '\n' : '') + '（连接失败：' + e.message + '）';
+    asst.shown = asst.text;
+    speechAbort(); sayState('');
+    toast('请求失败，检查 Ollama 是否在运行');
+  }
+
+  if (autoSticker && asst.text && !asst.sticker) {
+    const pick = pickSticker(text, asst.text);
+    if (pick) {
+      asst.sticker = pick.file;
+      asst.mood = pick.mood || pick.label;
+    }
+  }
+  asst.done = true;
+  saveSessions(); render();
+  row = log.lastElementChild;     // render() 重建了 DOM，把引用接回来，后面 reveal 才画得上去
+  if (row) col = row.firstElementChild;
+  // 把最后没送出去的那点尾巴读完（开关关掉时不读，手动「重播」仍然可用）
+  // sp.fullText 是给「重播」缓存用的：流式朗读是分块合成的，读完要把它们
+  // 拼成一条存起来，否则再点重播还得整段重新合成一遍。
+  if (autoSpeak && streamSpeak) { sp.fullText = asst.text; speechFinish(); }
+  else if (autoSpeak && asst.text) speak(asst.text, null, text);   // 整段模式：写完再合成
+  busy = false; $('send').disabled = false; inp.focus();
+}
+
+/* ---------------- 事件绑定 ---------------- */
+/* ---------------- 语音输入（离线识别） ----------------
+   点一下开始录，再点一下结束；录到的音频交给本地识别服务（9882）转成文字，
+   填进输入框并直接发送——这就是"用嘴下命令"。 */
+let micRec = null, micChunks = [], micOn = false;
+async function toggleMic(){
+  const btn = $('mic');
+  if (micOn && micRec) { micRec.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}
+    });
+    micChunks = [];
+    micRec = new MediaRecorder(stream);
+    micRec.ondataavailable = e => { if (e.data && e.data.size) micChunks.push(e.data); };
+    micRec.onstop = async () => {
+      micOn = false; btn.classList.remove('on'); btn.textContent = '🎙 说话';
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(micChunks, {type: micRec.mimeType || 'audio/webm'});
+      await handleVoice(blob);
+    };
+    micRec.start();
+    micOn = true; btn.classList.add('on'); btn.textContent = '⏹ 结束';
+    sayState('录音中…', 'live');
+  } catch(e) {
+    toast('打不开麦克风：' + String(e.message).slice(0, 60));
+  }
+}
+async function handleVoice(blob){
+  if (!blob.size) { sayState(''); return; }
+  sayState('识别中…', 'warn');
+  try {
+    const r = await fetch('/api/asr?format=webm', {
+      method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: blob});
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    if (!j.text || !j.text.trim()) { sayState(''); toast('没听清，再说一次？'); return; }
+    inp.value = j.text.trim();
+    sayState('');
+    send();                       // 说话即发送
+  } catch(e) {
+    sayState('');
+    toast('语音识别失败：' + String(e.message).slice(0, 70));
+  }
+}
+$('mic').onclick = toggleMic;
+
+$('send').onclick = send;
+$('new').onclick = () => { document.body.classList.remove('nav-open'); newSession(); };
+/* 手机上：侧栏默认藏在屏幕外，点 ☰ 拉出来 */
+$('menu').onclick = () => document.body.classList.toggle('nav-open');
+$('sideBack').onclick = () => document.body.classList.remove('nav-open');
+inp.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+inp.addEventListener('input', () => {
+  inp.style.height = '56px';
+  inp.style.height = Math.min(inp.scrollHeight, 190) + 'px';
+});
+$('voice').onclick = function(){
+  autoSpeak = !autoSpeak;
+  localStorage.setItem('rm_voice', autoSpeak ? '1' : '0');
+  this.classList.toggle('on', autoSpeak);
+  this.textContent = autoSpeak ? '🔊 自动朗读' : '🔇 自动朗读';
+  if (!autoSpeak) { speechAbort(); blockedAudio = null; sayState(''); }
+  toast(autoSpeak ? '以后每条回复都会自动读出来' : '已关掉自动朗读（点每条回复下的「重播」仍可出声）');
+};
+function setDrawer(open){
+  $('drawer').classList.toggle('open', open);
+  $('drawerBack').classList.toggle('open', open);
+}
+$('skin').onclick = () => setDrawer(!$('drawer').classList.contains('open'));
+$('drawerClose').onclick = () => setDrawer(false);
+$('drawerBack').onclick = () => setDrawer(false);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { setDrawer(false); document.body.classList.remove('nav-open'); }
+});
+$('bgSel').onchange = async function(){
+  const v = this.value;
+  try {
+    const c = await api('/api/appearance', {
+      bg_type: v === 'none' ? 'none' : (/\.(mp4|webm|m4v|mov)$/i.test(v) ? 'video' : 'image'),
+      bg_file: v === 'none' ? '' : v});
+    cfg = c; applyAppearance(c); toast('背景已更新');
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('iconSel').onchange = async function(){
+  try {
+    const c = await api('/api/appearance', {icon: this.value});
+    cfg = c; applyAppearance(c); toast('图标已更新');
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('dim').oninput = function(){ $('scrim').style.opacity = this.value / 100; };
+$('dim').onchange = async function(){
+  try {
+    const c = await api('/api/appearance', {bg_dim: parseInt(this.value, 10)});
+    cfg = c; applyAppearance(c);
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('blend').oninput = function(){ applySidebar(cfg, parseInt(this.value, 10)); };
+$('blend').onchange = async function(){
+  try {
+    const c = await api('/api/appearance', {sidebar_blend: parseInt(this.value, 10)});
+    cfg = c; applyAppearance(c);
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('sideOp').oninput = function(){ applySidebar(cfg, null, parseInt(this.value, 10)); };
+$('sideOp').onchange = async function(){
+  try {
+    const c = await api('/api/appearance', {side_opacity: parseInt(this.value, 10)});
+    cfg = c; applyAppearance(c);
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('footOp').oninput = function(){
+  document.documentElement.style.setProperty('--foot-a', (this.value / 100).toFixed(3));
+};
+$('footOp').onchange = async function(){
+  try {
+    const c = await api('/api/appearance', {foot_opacity: parseInt(this.value, 10)});
+    cfg = c; applyAppearance(c);
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('headOp').oninput = function(){
+  document.documentElement.style.setProperty('--head-a', (this.value / 100).toFixed(3));
+};
+$('headOp').onchange = async function(){
+  try {
+    const c = await api('/api/appearance', {head_opacity: parseInt(this.value, 10)});
+    cfg = c; applyAppearance(c);
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('wdApply').onclick = async () => {
+  try {
+    const j = await api('/api/workdir', {path: $('wdIn').value.trim()});
+    toast('工作目录已切到 ' + j.workdir); loadConfig();
+  } catch(e) { toast('失败：' + e.message); }
+};
+$('rdApply').onclick = async () => {
+  try {
+    const c = await api('/api/readdirs', {dirs: $('rdIn').value.trim()});
+    cfg = c; applyAppearance(c);
+    toast(c.extra_read.length ? '只读目录已加：' + c.extra_read.length + ' 个'
+                              : '只读目录已清空');
+  } catch(e) { toast('失败：' + e.message); }
+};
+async function doImport(useAs){
+  const src = $('impSrc').value.trim();
+  if (!src) { toast('先填一个文件路径'); return; }
+  try {
+    const j = await api('/api/import', {src, use_as: useAs});
+    cfg = j.config; applyAppearance(cfg);
+    toast('已导入 ' + j.path);
+  } catch(e) { toast('失败：' + e.message); }
+}
+$('impBg').onclick = () => doImport('bg');
+$('impIcon').onclick = () => doImport('icon');
+
+/* ---------------- 梅梅记住的习惯 ---------------- */
+async function loadHabits(){
+  try {
+    const j = await (await fetch('/api/habits')).json();
+    $('habitsBox').value = j.text || '';
+    $('habitsPath').textContent = j.file || '—';
+    const n = (j.text || '').split('\n').filter(l => l.trim().startsWith('- ')).length;
+    if ($('railHabitCount')) $('railHabitCount').textContent = n ? n + ' 条' : '0 条';
+  } catch (e) {
+    $('habitsBox').value = '';
+    $('habitsPath').textContent = '（读不到，后端没在运行？）';
+  }
+}
+$('habitsReload').onclick = loadHabits;
+$('habitsSave').onclick = async () => {
+  try {
+    const r = await fetch('/api/habits', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: $('habitsBox').value})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    toast('习惯已保存，下一条消息就生效');
+  } catch (e) { toast('保存失败：' + e.message); }
+};
+loadHabits();
+// 打开外观面板时顺手刷新一次（梅梅自己用 remember 改过的话，这里能看到）
+$('skin').addEventListener('click', loadHabits);
+
+/* ---------------- 定时提醒 ---------------- */
+function drawReminders(j){
+  const items = j.items || [];
+  const box = $('remList');
+  box.innerHTML = '';
+  const railT = $('railTasks');
+  if (railT) {
+    railT.innerHTML = '';
+    if (items.length) {
+      items.slice(0, 3).forEach(it => {
+        const row = el('div', 'rail-task');
+        row.appendChild(el('span', 'box'));
+        const t = el('span', 't');
+        t.appendChild(el('span', 'tm', it.time + ' '));
+        t.appendChild(document.createTextNode(it.text || ''));
+        row.appendChild(t);
+        railT.appendChild(row);
+      });
+    } else {
+      [['整理工作目录', '帮我看看工作目录里有什么，顺便整理一下'],
+       ['安排今天', '帮我安排今天的时间，先看看我的习惯'],
+       ['听点什么', '看看我最近爱听什么，然后放首歌']].forEach(([label, q]) => {
+        const row = el('div', 'rail-task');
+        row.appendChild(el('span', 'box'));
+        row.appendChild(el('span', 't', label));
+        row.onclick = () => quickSend(q);
+        railT.appendChild(row);
+      });
+    }
+  }
+  const railR = $('railReminders');
+  if (railR) {
+    railR.innerHTML = '';
+    if (items.length) {
+      items.slice(0, 3).forEach(it => {
+        const row = el('div', 'rail-task');
+        row.appendChild(el('span', 'tm', it.time));
+        row.appendChild(el('span', 't', it.text || ''));
+        railR.appendChild(row);
+      });
+    } else {
+      railR.appendChild(el('div', 'rail-empty', '暂无提醒。'));
+      const add = el('button', 'mini wide', '＋ 添加');
+      add.onclick = () => setDrawer(true);
+      railR.appendChild(add);
+    }
+  }
+  if (!items.length) { box.textContent = '（还没有提醒）'; return; }
+  items.forEach(it => {
+    const row = el('div', null, '');
+    row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:3px 0';
+    const cn = {daily: '每天', weekdays: '工作日', weekly: '每周', once: '一次'}[it.repeat] || it.repeat;
+    row.appendChild(el('span', null, it.time + ' ' + cn + ' · ' + it.text));
+    row.firstChild.style.flex = '1';
+    if (it.enabled === false) row.firstChild.style.opacity = '.5';
+    const x = el('button', null, '✕');
+    x.title = '删掉这条';
+    x.onclick = () => remApi({action: 'delete', id: it.id}).then(drawReminders);
+    row.appendChild(x);
+    box.appendChild(row);
+  });
+  const fired = j.fired || [];
+  $('remFired').textContent = fired.length
+    ? '最近响过：' + fired.slice(-3).map(r => r.at + ' ' + r.text).join('；')
+    : '最近响过：—';
+}
+async function remApi(body){
+  const r = await fetch('/api/reminders', {method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json();
+  if (j.message && !body.quiet) toast(String(j.message).split('\n')[0].slice(0, 60));
+  return j;
+}
+async function loadReminders(){
+  try { drawReminders(await (await fetch('/api/reminders')).json()); }
+  catch (e) { $('remList').textContent = '（读不到提醒，后端没在运行？）'; }
+}
+$('remAdd').onclick = async () => {
+  const text = $('remText').value.trim();
+  if (!text) { toast('先写要提醒什么'); return; }
+  const j = await remApi({action: 'add', text, at: $('remTime').value,
+                          repeat: $('remRepeat').value});
+  $('remText').value = '';
+  drawReminders(j);
+};
+$('remTest').onclick = async () => {
+  toast('正在合成，几秒后从音箱里念出来…');
+  await remApi({action: 'test', text: '我是梅梅，到点我会这样提醒你。'});
+};
+loadReminders();
+setInterval(loadReminders, 20000);
+
+/* ---------------- 听歌口味（她自动记的） ---------------- */
+async function loadTaste(){
+  try {
+    const j = await (await fetch('/api/taste')).json();
+    $('tasteBox').textContent = (j.text || '').replace(/\n/g, '　·　');
+    const lines = (j.text || '').split('\n').filter(Boolean);
+    if ($('railTaste')) $('railTaste').textContent =
+      (j.text || '').replace(/\n/g, ' · ').slice(0, 110) || '（还没有记录）';
+    if ($('railTasteCount')) $('railTasteCount').textContent =
+      lines.length ? lines.length + ' 项' : '0 项';
+  } catch (e) {
+    $('tasteBox').textContent = '（读不到，后端没在运行？）';
+    if ($('railTaste')) $('railTaste').textContent = '（读不到）';
+  }
+}
+$('tasteReload').onclick = loadTaste;
+loadTaste();
+setInterval(loadTaste, 60000);
+
+/* ---------------- 表情包回复 ---------------- */
+let stickerItems = [];
+let autoSticker = localStorage.getItem('rm_auto_sticker') !== '0';
+function setAutoSticker(on){
+  autoSticker = !!on;
+  localStorage.setItem('rm_auto_sticker', autoSticker ? '1' : '0');
+  ['autoStickerBtn', 'autoStickerBtn2'].forEach(id => {
+    if ($(id)) $(id).textContent = autoSticker ? '自动·开' : '自动·关';
+  });
+}
+function pickSticker(userText, replyText){
+  const u = String(userText || '');
+  const r = String(replyText || '');
+  if (/表情包|发个表情|来个表情/.test(u)) {
+    return stickerItems[Math.floor(Math.random() * stickerItems.length)] || null;
+  }
+  if (!r || r.includes('```') || r.length > 1200) return null;
+  const strongUser = /好累|累死|无语|离谱|搞不懂|不明白|有点疑惑|奖励|要什么|悠闲|休息一下|好舒服/.test(u);
+  let best = null, bestScore = 0;
+  stickerItems.forEach(it => {
+    let score = 0;
+    (it.keywords || []).forEach(kw => {
+      if (u.includes(kw)) score += 2;
+      if (r.includes(kw)) score += 1;
+    });
+    if (it.label && r.includes(it.label)) score += 1;
+    if (score > bestScore) { best = it; bestScore = score; }
+  });
+  return (bestScore >= 3 || (bestScore >= 2 && strongUser)) ? best : null;
+}
+function fillStickerGrid(box, items){
+  if (!box) return;
+  box.innerHTML = '';
+  items.forEach(it => {
+    const b = el('button', 'sticker-tile');
+    b.title = (it.label || ('表情包 ' + it.id)) + ' · 点击作为回复';
+    const im = new Image();
+    im.src = '/' + it.thumb;
+    im.alt = it.label || ('表情包 ' + it.id);
+    b.appendChild(im);
+    b.onclick = () => addStickerReply(it.file);
+    box.appendChild(b);
+  });
+}
+async function loadStickers(){
+  try {
+    stickerItems = await (await fetch('/assets/stickers.json?v=' + Date.now())).json();
+    fillStickerGrid($('stickerGrid'), stickerItems);
+    fillStickerGrid($('stickerPopGrid'), stickerItems);
+  } catch (e) {
+    if ($('stickerGrid')) $('stickerGrid').textContent = '（表情素材读取失败）';
+  }
+}
+function addStickerReply(file){
+  if (!file) return;
+  if (!cur()) newSession();
+  const s = cur();
+  if (!s) return;
+  s.items.push({role: 'assistant', text: '', sticker: file, done: true});
+  saveSessions();
+  render();
+  log.scrollTop = log.scrollHeight;
+  if ($('stickerPop')) $('stickerPop').classList.remove('open');
+}
+function randomSticker(){
+  if (!stickerItems.length) return;
+  addStickerReply(stickerItems[Math.floor(Math.random() * stickerItems.length)].file);
+}
+setAutoSticker(autoSticker);
+if ($('autoStickerBtn')) $('autoStickerBtn').onclick = () => setAutoSticker(!autoSticker);
+if ($('autoStickerBtn2')) $('autoStickerBtn2').onclick = () => setAutoSticker(!autoSticker);
+if ($('stickerRandom')) $('stickerRandom').onclick = randomSticker;
+if ($('stickerBtn')) $('stickerBtn').onclick = () => {
+  const p = $('stickerPop');
+  if (p) p.classList.toggle('open');
+};
+if ($('stickerPopClose')) $('stickerPopClose').onclick = () => {
+  if ($('stickerPop')) $('stickerPop').classList.remove('open');
+};
+loadStickers();
+
+/* ---------------- 启动 ---------------- */
+$('voice').classList.toggle('on', autoSpeak);
+$('voice').textContent = autoSpeak ? '🔊 自动朗读' : '🔇 自动朗读';
+$('streamChk').checked = streamSpeak;
+$('pauseBgChk').checked = pauseBgWhileSpeak;
+$('pauseBgChk').onchange = function(){
+  pauseBgWhileSpeak = this.checked;
+  localStorage.setItem('rm_pausebg', pauseBgWhileSpeak ? '1' : '0');
+  if (!pauseBgWhileSpeak) { bgToken++; bgVideoResume(); }
+  toast(pauseBgWhileSpeak ? '朗读时背景视频会暂停，说完自动接着放'
+                          : '朗读时背景视频照常播放（显卡吃紧时可能会卡）');
+};
+$('streamChk').onchange = function(){
+  streamSpeak = this.checked;
+  localStorage.setItem('rm_stream', streamSpeak ? '1' : '0');
+  toast(streamSpeak ? '分块朗读：约 3 秒出声，句间会有停顿'
+                    : '整段朗读：没有接缝，长回复要等整段合成完');
+};
+
+/* ---------------- 三栏导航 / 右栏 ---------------- */
+function refreshRailClock(){
+  const e = $('railClock');
+  if (!e) return;
+  e.textContent = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+}
+refreshRailClock();
+setInterval(refreshRailClock, 30000);
+
+if ($('sessSearch')) {
+  $('sessSearch').addEventListener('input', renderSessions);
+}
+if ($('railNewTask')) $('railNewTask').onclick = newSession;
+if ($('wdEdit')) $('wdEdit').onclick = () => {
+  setDrawer(true);
+  setTimeout(() => $('wdIn') && $('wdIn').focus(), 220);
+};
+if ($('railMemory')) $('railMemory').onclick = () => {
+  setDrawer(true);
+  setTimeout(() => $('habitsBox') && $('habitsBox').scrollIntoView({block: 'center'}), 220);
+};
+document.querySelectorAll('[data-q]').forEach(b => {
+  b.onclick = () => quickSend(b.dataset.q);
+});
+document.querySelectorAll('.navi').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.navi').forEach(x => x.classList.toggle('on', x === b));
+    const nav = b.dataset.nav;
+    if (nav === 'chat') {
+      $('toolPalette') && $('toolPalette').classList.remove('show');
+      inp && inp.focus();
+    } else if (nav === 'tools') {
+      $('toolPalette') && $('toolPalette').classList.toggle('show');
+    } else if (nav === 'history') {
+      $('toolPalette') && $('toolPalette').classList.remove('show');
+      $('sessSearch') && $('sessSearch').focus();
+      $('sessions') && $('sessions').scrollIntoView({block: 'nearest'});
+    }
+  };
+});
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('sessSearch') && $('sessSearch').focus();
+  }
+});
+
+/* ---------------- 无边框窗口的悬浮控制 ---------------- */
+function winCtl(name){
+  try {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || typeof api[name] !== 'function') return;
+    api[name]();
+  } catch (e) {}
+}
+if ($('winMin')) $('winMin').onclick = () => winCtl('minimize');
+if ($('winMax')) $('winMax').onclick = () => winCtl('toggle_max');
+if ($('winClose')) $('winClose').onclick = () => winCtl('close');
+if ($('dragbar')) $('dragbar').ondblclick = () => winCtl('toggle_max');
+window.addEventListener('pywebviewready', () => {
+  if ($('wincontrols')) $('wincontrols').style.display = 'flex';
+});
+setTimeout(() => {
+  if (!window.pywebview && $('wincontrols')) $('wincontrols').style.display = 'none';
+}, 1500);
+
+/* 首次打开时 WebView2 可能先按临时尺寸排版，窗口真正定下来后没有触发重排。
+   这里按实际 innerWidth 打类，并用 ResizeObserver 跟住窗口尺寸变化。 */
+function syncLayout(){
+  const w = window.innerWidth || document.documentElement.clientWidth || 1280;
+  const b = document.body;
+  b.classList.toggle('compact', w <= 1400);
+  b.classList.toggle('narrow', w <= 1180);
+  b.classList.toggle('micro', w <= 1050);
+  b.classList.toggle('tiny', w <= 820);
+}
+syncLayout();
+requestAnimationFrame(syncLayout);
+setTimeout(syncLayout, 300);
+setTimeout(syncLayout, 1000);
+window.addEventListener('resize', syncLayout);
+window.addEventListener('pywebviewready', () => {
+  syncLayout();
+  setTimeout(syncLayout, 300);
+});
+if (window.ResizeObserver) {
+  new ResizeObserver(syncLayout).observe(document.documentElement);
+}
+
+if ($('bgRegion')) $('bgRegion').onchange = () => markBgTiles(cfg || {});
+if ($('bgClear')) $('bgClear').onclick = () => {
+  const region = $('bgRegion') ? $('bgRegion').value : 'global';
+  if (region === 'global') {
+    const sel = $('bgSel');
+    sel.value = 'none';
+    sel.dispatchEvent(new Event('change'));
+  } else {
+    const m = regionBgs();
+    delete m[region];
+    localStorage.setItem('rm_bg_regions', JSON.stringify(m));
+    applyRegionBackgrounds();
+    markBgTiles(cfg || {});
+    toast('已清除当前区域背景');
+  }
+};
+applyRegionBackgrounds();
+
+loadConfig().catch(e => toast('读取配置失败：' + e.message));
+// 8 秒探一次：后端被杀掉的话，页面对 CPU 状态、提示文字、背景恢复都能更快反应过来
+check(); setInterval(check, 8000);
+render(); inp.focus();
+</script>
+</body>
+</html>

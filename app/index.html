@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>阮·梅</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--line:#262b36;--ink:#e6e9ef;
+        --muted:#8b93a3;--accent:#7aa2f7;--me:#1e2330;--her:#1a2634}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+       display:flex;flex-direction:column;height:100vh}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:12px;background:var(--panel)}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  header .dot{width:8px;height:8px;border-radius:50%;background:#444}
+  header .dot.on{background:#22c55e}
+  header .sp{margin-left:auto;display:flex;gap:8px;align-items:center;
+             font-size:13px;color:var(--muted)}
+  button{font:inherit;font-size:13px;padding:6px 12px;border-radius:8px;
+         border:1px solid var(--line);background:#1d2129;color:var(--ink);cursor:pointer}
+  button:hover{border-color:#39414f}
+  button.on{background:var(--accent);border-color:var(--accent);color:#0b1220;font-weight:600}
+  #log{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:760px;padding:11px 15px;border-radius:12px;
+       border:1px solid var(--line);white-space:pre-wrap;word-break:break-word}
+  .me{align-self:flex-end;background:var(--me)}
+  .her{align-self:flex-start;background:var(--her)}
+  .who{font-size:12px;color:var(--muted);margin-bottom:4px}
+  .acts{margin-top:8px;display:flex;gap:8px}
+  .acts button{padding:3px 9px;font-size:12px}
+  footer{border-top:1px solid var(--line);padding:14px 20px;background:var(--panel);
+         display:flex;gap:10px}
+  textarea{flex:1;resize:none;height:52px;padding:12px;border-radius:10px;
+           border:1px solid var(--line);background:#12151b;color:var(--ink);
+           font:inherit;outline:none}
+  textarea:focus{border-color:var(--accent)}
+  .hint{font-size:12px;color:var(--muted);text-align:center;padding:6px}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>阮·梅</h1>
+  <span class="sp">
+    <span id="stat">检查服务中…</span>
+    <button id="voice" class="on">🔊 语音开</button>
+    <button id="think">💭 思考关</button>
+    <button id="clear">清空</button>
+  </span>
+</header>
+<div id="log"></div>
+<footer>
+  <textarea id="inp" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+  <button id="send" style="padding:0 22px">发送</button>
+</footer>
+<div class="hint">首次合成需等约 5 分钟（模型预热），之后每次 1~2 秒</div>
+<script>
+const log = document.getElementById('log');
+const inp = document.getElementById('inp');
+const dot = document.getElementById('dot');
+const stat = document.getElementById('stat');
+let useVoice = true, useThink = false, busy = false;
+let history = [];
+function el(t, c, x){const n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n;}
+function add(role, text){
+  const box = el('div', 'msg ' + (role==='user'?'me':'her'));
+  box.appendChild(el('div','who', role==='user'?'你':'阮·梅'));
+  const body = el('div', null, text);
+  box.appendChild(body);
+  if(role==='assistant'){
+    const a = el('div','acts');
+    const b = el('button', null, '🔊 重播');
+    b.onclick = () => speak(body.textContent, b);
+    a.appendChild(b); box.appendChild(a);
+  }
+  log.appendChild(box); log.scrollTop = log.scrollHeight;
+  return body;
+}
+async function check(){
+  try{
+    const r = await fetch('/api/status'); const j = await r.json();
+    dot.className = 'dot on';
+    stat.textContent = j.tts ? '模型+语音就绪' : '仅文字（语音未启动）';
+  }catch(e){ dot.className='dot'; stat.textContent='服务未就绪'; }
+}
+async function speak(text, btn){
+  if(!useVoice || !text.trim()) return;
+  if(btn){ btn.textContent='合成中…'; btn.disabled=true; }
+  try{
+    const r = await fetch('/api/tts', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text})});
+    if(!r.ok) throw new Error(await r.text());
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const au = new Audio(url);
+    au.play().catch(()=>{});
+    if(btn){ btn.textContent='🔊 重播'; btn.disabled=false; }
+  }catch(e){
+    if(btn){ btn.textContent='🔊 重播'; btn.disabled=false; }
+    console.warn('语音失败', e);
+  }
+}
+async function send(){
+  const text = inp.value.trim();
+  if(!text || busy) return;
+  busy = true; inp.value=''; inp.style.height='52px';
+  add('user', text);
+  history.push({role:'user', content:text});
+  const body = add('assistant', '…');
+  let full = '';
+  try{
+    const r = await fetch('/api/chat', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({messages: history, think: useThink})});
+    const reader = r.body.getReader(); const dec = new TextDecoder();
+    let buf = '';
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, {stream:true});
+      const lines = buf.split('\n'); buf = lines.pop();
+      for(const ln of lines){
+        if(!ln.trim()) continue;
+        try{
+          const j = JSON.parse(ln);
+          if(j.message && j.message.content){ full += j.message.content; body.textContent = full; log.scrollTop = log.scrollHeight; }
+        }catch(e){}
+      }
+    }
+  }catch(e){ full = '（出错了：' + e.message + '）'; body.textContent = full; }
+  if(full){
+    history.push({role:'assistant', content:full});
+    body.parentNode.querySelector('.acts').innerHTML='';
+    const b = el('button', null, '🔊 重播');
+    b.onclick = () => speak(full, b);
+    body.parentNode.querySelector('.acts').appendChild(b);
+    speak(full, null);
+  }
+  busy = false; inp.focus();
+}
+document.getElementById('send').onclick = send;
+inp.addEventListener('keydown', e => {
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+inp.addEventListener('input', () => { inp.style.height='52px'; inp.style.height=Math.min(inp.scrollHeight,140)+'px'; });
+document.getElementById('voice').onclick = function(){
+  useVoice = !useVoice; this.classList.toggle('on', useVoice);
+  this.textContent = useVoice ? '🔊 语音开' : '🔇 语音关';
+};
+document.getElementById('think').onclick = function(){
+  useThink = !useThink; this.classList.toggle('on', useThink);
+  this.textContent = useThink ? '💭 思考开' : '💭 思考关';
+};
+document.getElementById('clear').onclick = () => { history = []; log.innerHTML=''; };
+check(); setInterval(check, 10000); inp.focus();
+</script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+[
+  {
+    "id": 1,
+    "file": "assets/sticker-01.jpg",
+    "thumb": "assets/sticker-01-thumb.jpg",
+    "label": "叹气",
+    "mood": "叹气",
+    "keywords": [
+      "叹气",
+      "唉",
+      "无奈",
+      "累了",
+      "好累",
+      "累死",
+      "疲惫",
+      "算了",
+      "又来了",
+      "没辙",
+      "失望",
+      "可惜"
+    ]
+  },
+  {
+    "id": 2,
+    "file": "assets/sticker-02.jpg",
+    "thumb": "assets/sticker-02-thumb.jpg",
+    "label": "悠闲",
+    "mood": "悠闲",
+    "keywords": [
+      "悠闲",
+      "休息",
+      "喝茶",
+      "茶点",
+      "放松",
+      "慢慢来",
+      "不急",
+      "舒服",
+      "惬意",
+      "闲暇",
+      "偷懒"
+    ]
+  },
+  {
+    "id": 3,
+    "file": "assets/sticker-03.jpg",
+    "thumb": "assets/sticker-03-thumb.jpg",
+    "label": "无语",
+    "mood": "无语",
+    "keywords": [
+      "无语",
+      "离谱",
+      "沉默",
+      "不知道说什么",
+      "服了",
+      "尴尬",
+      "真行",
+      "没话说"
+    ]
+  },
+  {
+    "id": 4,
+    "file": "assets/sticker-04.jpg",
+    "thumb": "assets/sticker-04-thumb.jpg",
+    "label": "疑惑",
+    "mood": "疑惑",
+    "keywords": [
+      "疑惑",
+      "困惑",
+      "不明白",
+      "不懂",
+      "奇怪",
+      "怎么回事",
+      "嗯？",
+      "为什么",
+      "不确定",
+      "搞不懂"
+    ]
+  },
+  {
+    "id": 5,
+    "file": "assets/sticker-05.jpg",
+    "thumb": "assets/sticker-05-thumb.jpg",
+    "label": "疑问（要什么奖励？）",
+    "mood": "疑问",
+    "keywords": [
+      "奖励",
+      "要什么",
+      "想要什么",
+      "猜猜",
+      "奖励你",
+      "期待",
+      "要求",
+      "想要点",
+      "给我什么"
+    ]
+  }
+]

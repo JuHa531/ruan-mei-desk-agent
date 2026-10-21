@@ -1,0 +1,11 @@
+{
+  "bg_type": "image",
+  "bg_file": "assets/bg.jpg",
+  "icon": "assets/icon.png",
+  "bg_dim": 5,
+  "sidebar_blend": 65,
+  "side_opacity": 35,
+  "foot_opacity": 0,
+  "head_opacity": 11,
+  "extra_read": []
+}

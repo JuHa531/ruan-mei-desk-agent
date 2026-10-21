@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地 AI 任务清单</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1b1f24; --muted: #6b7480;
+    --line: #e3e6ea; --accent: #2f6feb; --done: #1f9d55; --req: #b42318;
+    --opt: #6b7480; --code: #f2f4f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px 80px; }
+  header.top {
+    position: sticky; top: 0; z-index: 10; background: rgba(246,247,249,.94);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+    padding: 16px 20px; margin: 0 -20px 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .bar { height: 10px; background: var(--line); border-radius: 6px; overflow: hidden; margin: 12px 0 6px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+  .barmeta { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); }
+  .tools { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 7px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
+  }
+  button:hover { border-color: #c8ccd2; }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  section.phase { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+  section.phase > h2 {
+    font-size: 15.5px; margin: 0; padding: 14px 16px; cursor: pointer;
+    display: flex; align-items: center; gap: 10px; user-select: none;
+  }
+  section.phase > h2 .caret { color: var(--muted); font-size: 12px; transition: transform .2s; }
+  section.phase.collapsed > h2 .caret { transform: rotate(-90deg); }
+  section.phase.collapsed .body { display: none; }
+  h2 .ptime { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 400; }
+  h2 .pcount { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .body { padding: 0 16px 8px; }
+  .task { border-top: 1px solid var(--line); padding: 12px 0; }
+  .task:first-child { border-top: none; }
+  .row { display: flex; gap: 10px; align-items: flex-start; }
+  .row input[type=checkbox] { width: 17px; height: 17px; margin: 3px 0 0; accent-color: var(--done); flex: none; cursor: pointer; }
+  .ttext { flex: 1; }
+  .ttext.done .name { text-decoration: line-through; color: var(--muted); }
+  .name { font-weight: 600; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 20px; border: 1px solid; margin-left: 6px; vertical-align: 1px; }
+  .badge.req { color: var(--req); border-color: #f3c2bd; background: #fdf3f2; }
+  .badge.opt { color: var(--opt); border-color: var(--line); background: #fafbfc; }
+  .goal { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .goal b { color: var(--ink); font-weight: 600; }
+  .cmd { position: relative; margin: 8px 0 0; }
+  pre {
+    background: var(--code); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; overflow-x: auto; font-size: 12.5px; margin: 0;
+    font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+  }
+  .copy { position: absolute; top: 6px; right: 6px; font-size: 11.5px; padding: 2px 8px; }
+  .note { background: #fffaeb; border: 1px solid #f3e3b8; border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 0 0 16px; }
+  .note b { color: #8a5a00; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>本地 AI 任务清单</h1>
+  <div class="sub">进度会自动存在浏览器里，关掉再打开还在。打勾顺序不用严格从上到下。</div>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="barmeta"><span id="pct">0%</span><span id="cnt">0 / 0</span></div>
+  <div class="tools">
+    <button id="filter">只看必做</button>
+    <button id="expand">全部展开</button>
+    <button id="collapse">全部收起</button>
+    <button id="reset">清空进度</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="note">
+    <b>最短路径只有 5 项：</b>阶段 0 的第 1 条 → 阶段 1 的前 4 条。做完你就有一个人完全离线、
+    不依赖任何 API 的 AI。剩下所有步骤都是为了让它更像你、能出声，可以慢慢来。
+  </div>
+  <div id="phases"></div>
+</div>
+<script>
+const PHASES = [
+  { id: "p0", title: "阶段 0 · 腾出 C 盘空间", time: "5 分钟", open: true, tasks: [
+    { id: "0.1", name: "把缓存目录挪到 G 盘", tag: "必做",
+      cmd: String.raw`cd C:\Users\qqqqq\Documents\Codex\2026-10-06\wo\outputs\local-ai-toolkit\scripts
+powershell -ExecutionPolicy Bypass -File .\setup_env.ps1`,
+      goal: "输出里 5 个环境变量都指向 G:\\ai\\...，并显示 G 盘剩余空间" },
+    { id: "0.2", name: "重开窗口并验证变量", tag: "必做",
+      cmd: String.raw`echo $env:HF_HOME`,
+      goal: "输出 G:\\ai\\hf-cache。为空说明上一步没成功，或者没重开窗口" },
+    { id: "0.3", name: "确认磁盘余量", tag: "必做",
+      cmd: String.raw`Get-PSDrive C,D,F,G | Select-Object Name,@{n='Free_GB';e={[math]::Round($_.Free/1GB,1)}}`,
+      goal: "G 盘剩余 200GB 以上（当前约 265GB）" }
+  ]},
+  { id: "p1", title: "阶段 1 · 让本地 AI 跑起来", time: "30~60 分钟", open: true, tasks: [
+    { id: "1.1", name: "下载安装 Ollama", tag: "必做",
+      cmd: "从 https://ollama.com/download 下载 Windows 安装包，双击安装",
+      goal: "安装完成，不需要配置任何东西" },
+    { id: "1.2", name: "验证安装", tag: "必做",
+      cmd: String.raw`ollama -v`,
+      goal: "打印出版本号。提示找不到命令就重开一个 PowerShell" },
+    { id: "1.3", name: "拉取并运行中文模型", tag: "必做",
+      cmd: String.raw`ollama run qwen3:8b`,
+      goal: "第一次下载约 5GB（存到 G 盘）。能连贯回答中文就算成功，/bye 退出" },
+    { id: "1.4", name: "断网验证", tag: "必做",
+      cmd: "断开网络（拔网线或关 Wi-Fi），再问它一个问题",
+      goal: "断网状态下仍能正常回答 —— 做到这里，不依赖 API 的本地 AI 就成立了" },
+    { id: "1.5", name: "装网页界面", tag: "可选",
+      cmd: "pip install open-webui\nopen-webui serve",
+      goal: "浏览器打开 http://localhost:8080 能用。接语音也靠它" },
+    { id: "1.6", name: "记录「它哪里不懂我」", tag: "必做",
+      cmd: "正常用几天，把答得不对、不像你的场景记到一个文件里",
+      goal: "有一份清单，它决定第 2 阶段走哪条路" }
+  ]},
+  { id: "p2", title: "阶段 2 · 决定要不要训练，并准备数据", time: "半天~一周", open: false, tasks: [
+    { id: "2.1", name: "按清单分流：知识类需求不用训练", tag: "必做",
+      cmd: "它不懂我的资料 → 丢进 Open WebUI 知识库\n它记不住我的信息 → 写进 Modelfile 的 SYSTEM\n它说话不像我 → 续写式微调\n它不按我的格式干活 → 指令式微调",
+      goal: "明确写下结论。如果是前两条，直接跳到阶段 5，这不是失败是省了几天" },
+    { id: "2.2", name: "准备训练数据", tag: "必做",
+      cmd: String.raw`python scripts\prepare_data.py completion --src 你的笔记.md --out G:\ai\data\style.jsonl`,
+      goal: "G:\\ai\\data\\ 下有一个 jsonl 文件。路线 B 照 data\\template_instruction.jsonl 自己写问答对" },
+    { id: "2.3", name: "数据体检", tag: "必做",
+      cmd: String.raw`python scripts\prepare_data.py check --src G:\ai\data\train.jsonl`,
+      goal: "结论是「可以认真跑一轮」。提示少于 100 条就先补数据，别急着训练" }
+  ]},
+  { id: "p3", title: "阶段 3 · 微调", time: "1~3 小时（大部分在等）", open: false, tasks: [
+    { id: "3.1", name: "建独立环境", tag: "必做",
+      cmd: String.raw`conda create -p G:\ai\envs\llm python=3.12 -y
+conda activate G:\ai\envs\llm`,
+      goal: "不要用系统里的 Python 3.13，PyTorch 生态还没跟上" },
+    { id: "3.2", name: "装 PyTorch", tag: "必做",
+      cmd: "pip install torch --index-url https://download.pytorch.org/whl/cu124",
+      goal: "没有报错" },
+    { id: "3.3", name: "装 Unsloth", tag: "必做",
+      cmd: 'pip install "unsloth[cu124-torch250] @ git+https://github.com/unslothai/unsloth.git"\npip install hf_transfer',
+      goal: "没有报错。这步最容易卡住，出错把报错全文留着" },
+    { id: "3.4", name: "显卡自检", tag: "必做",
+      cmd: 'python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"',
+      goal: "输出 True NVIDIA GeForce RTX 4060 Laptop GPU。输出 False 就先别往下走" },
+    { id: "3.5", name: "先用小模型跑通全流程", tag: "必做",
+      cmd: String.raw`python scripts\train_qlora.py --data G:\ai\data\train.jsonl --out G:\ai\out\dryrun --model unsloth/Qwen3-1.7B-unsloth-bnb-4bit`,
+      goal: "生成 G:\\ai\\out\\dryrun\\adapter\\。约 20 分钟，只为确认流程没坑" },
+    { id: "3.6", name: "换 4B 正式训练", tag: "必做",
+      cmd: String.raw`python scripts\train_qlora.py --data G:\ai\data\train.jsonl --out G:\ai\out\run1`,
+      goal: "G:\\ai\\out\\run1\\adapter\\ 里出现模型文件" },
+    { id: "3.7", name: "盯住 loss 和 eval_loss", tag: "必做",
+      cmd: "报 CUDA out of memory 就依次降：--max-seq-length 1024  →  --lora-r 8",
+      goal: "loss 落到 1.0 以下。eval_loss 开始回升就是过拟合，减少轮数或补数据" }
+  ]},
+  { id: "p4", title: "阶段 4 · 变成你专属的 Ollama 模型", time: "30 分钟", open: false, tasks: [
+    { id: "4.1", name: "导出 GGUF", tag: "必做",
+      cmd: String.raw`python scripts\export_gguf.py --adapter G:\ai\out\run1\adapter --out G:\ai\out\run1\gguf`,
+      goal: "gguf 目录里出现 .gguf 文件和 Modelfile" },
+    { id: "4.2", name: "导入 Ollama", tag: "必做",
+      cmd: String.raw`ollama create my-ai -f G:\ai\out\run1\gguf\Modelfile
+ollama run my-ai`,
+      goal: "能用 my-ai 这个名字对话" },
+    { id: "4.3", name: "准备对照测试", tag: "必做",
+      cmd: "写 15~20 个你真正关心的问题，外加 5 个和训练完全无关的普通问题",
+      goal: "同一份问题问微调前后的模型，能说出哪几个变好、哪几个变差" },
+    { id: "4.4", name: "判断有没有变笨", tag: "必做",
+      cmd: "如果那 5 个无关问题明显退步，掺几百条通用问答数据后重跑 3.6",
+      goal: "无关问题基本不退步，才算这次微调是有效的" }
+  ]},
+  { id: "p5", title: "阶段 5 · 让它出声", time: "1~2 小时", open: false, tasks: [
+    { id: "5.1", name: "先解决显存冲突", tag: "必做",
+      cmd: String.raw`ollama pull qwen3:4b`,
+      goal: "8GB 装不下 8B 模型加语音模型，换成 4B 就宽裕了" },
+    { id: "5.2", name: "下载 GPT-SoVITS 整合包", tag: "必做",
+      cmd: "从 https://github.com/RVC-Boss/GPT-SoVITS 的 README 找整合包下载链接，解压到大盘",
+      goal: "解压完成，里面有 api_v2.py" },
+    { id: "5.3", name: "准备参考音频", tag: "必做",
+      cmd: "放到 G:\\ai\\voice\\ref\\ 目录下",
+      goal: "5~10 秒、单人、无背景音乐、无混响；并把这句原话逐字抄下来，抄错会串音" },
+    { id: "5.4", name: "启动 GPT-SoVITS 接口", tag: "必做",
+      cmd: "启动整合包里的 api_v2.py（注意不是 WebUI），默认端口 9880",
+      goal: "浏览器打开 http://127.0.0.1:9880/docs 能看到接口文档" },
+    { id: "5.5", name: "配置音色", tag: "必做",
+      cmd: String.raw`把 voice\voices.example.json 复制成 voice\voices.json，填入音频路径和原话`,
+      goal: "voices.json 里 ref_audio_path 和 prompt_text 都对上" },
+    { id: "5.6", name: "单独验证能出声", tag: "必做",
+      cmd: String.raw`python voice\tts_server.py --config voice\voices.json --say "你好，我现在在本地运行。"`,
+      goal: "生成 out.wav，播放出来是你要的音色。音色不对换素材，读错字就核对 prompt_text" },
+    { id: "5.7", name: "启动语音适配器", tag: "必做",
+      cmd: String.raw`python voice\tts_server.py --config voice\voices.json`,
+      goal: "显示监听 9881 端口，并列出可用音色" },
+    { id: "5.8", name: "在 Open WebUI 里接通", tag: "必做",
+      cmd: "设置 → 音频 → TTS 引擎选 OpenAI\nAPI Base URL 填 http://127.0.0.1:9881/v1\nAPI Key 随便填，TTS Voice 填你的音色名",
+      goal: "AI 的每条回复都用你的音色读出来" }
+  ]},
+  { id: "p6", title: "阶段 6 · 情绪控制", time: "30 分钟~2 小时", open: false, tasks: [
+    { id: "6.1", name: "先试零成本方案", tag: "必做",
+      cmd: String.raw`python voice\tts_server.py --config voice\voices.json --say "你怎么才回来？" --say-emotion 生气`,
+      goal: "给同一音色配几段不同情绪的参考音频（voices.json 里的 emotions 段），能读出不同情绪" },
+    { id: "6.2", name: "判断够不够用", tag: "必做",
+      cmd: "如果「要么生气要么平静、没法有点生气」这件事让你不满意，再往下走",
+      goal: "够用就到此为止，不用装新东西" },
+    { id: "6.3", name: "装 IndexTTS2", tag: "可选",
+      cmd: "uv run python voice\\index_tts_backend.py --model-dir ./checkpoints --warmup",
+      goal: "按官方 README 部署好 IndexTTS 后用封装脚本起服务，端口 9880" },
+    { id: "6.4", name: "切换后端", tag: "可选",
+      cmd: 'voices.json 的 backend 改成 {"base_url": "http://127.0.0.1:9880", "type": "index_tts"}',
+      goal: "八种内置情绪和中文别名直接可用，emotion_strength 调浓度；建议对话模型降到 qwen3:1.7b" }
+  ]}
+];
+
+const KEY = "local-ai-tasks-v1";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { state = {}; }
+const root = document.getElementById("phases");
+let onlyReq = false;
+
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function makeCopyButton(text) {
+  const b = el("button", "copy", "复制");
+  b.onclick = function (ev) {
+    ev.stopPropagation();
+    const ok = function () {
+      b.textContent = "已复制";
+      setTimeout(function () { b.textContent = "复制"; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok, function () { legacy(); });
+    } else { legacy(); }
+    function legacy() {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+      ok();
+    }
+  };
+  return b;
+}
+
+function render() {
+  root.innerHTML = "";
+  PHASES.forEach(function (ph) {
+    const sec = el("section", "phase" + (ph.open ? "" : " collapsed"));
+    const h2 = el("h2");
+    h2.appendChild(el("span", "caret", "\u25BC"));
+    h2.appendChild(el("span", null, ph.title));
+    const pc = el("span", "pcount");
+    h2.appendChild(pc);
+    h2.appendChild(el("span", "ptime", ph.time));
+    h2.onclick = function () { sec.classList.toggle("collapsed"); };
+    sec.appendChild(h2);
+    const body = el("div", "body");
+    let total = 0, done = 0;
+    ph.tasks.forEach(function (t) {
+      const isReq = t.tag === "必做";
+      if (onlyReq && !isReq) return;
+      total++;
+      const isDone = !!state[t.id];
+      if (isDone) done++;
+      const task = el("div", "task");
+      const row = el("div", "row");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = isDone;
+      cb.onchange = function () {
+        if (cb.checked) { state[t.id] = true; } else { delete state[t.id]; }
+        save();
+        render();
+      };
+      row.appendChild(cb);
+      const tt = el("div", "ttext" + (isDone ? " done" : ""));
+      const nameLine = el("div", "name");
+      nameLine.appendChild(document.createTextNode(t.name));
+      nameLine.appendChild(el("span", "badge " + (isReq ? "req" : "opt"), t.tag));
+      tt.appendChild(nameLine);
+      if (t.goal) {
+        const g = el("div", "goal");
+        g.appendChild(el("b", null, "完成标准："));
+        g.appendChild(document.createTextNode(t.goal));
+        tt.appendChild(g);
+      }
+      if (t.cmd) {
+        const wrapc = el("div", "cmd");
+        wrapc.appendChild(el("pre", null, t.cmd));
+        wrapc.appendChild(makeCopyButton(t.cmd));
+        tt.appendChild(wrapc);
+      }
+      row.appendChild(tt);
+      task.appendChild(row);
+      body.appendChild(task);
+    });
+    pc.textContent = done + "/" + total;
+    sec.appendChild(body);
+    root.appendChild(sec);
+  });
+  updateProgress();
+}
+
+function updateProgress() {
+  let total = 0, done = 0;
+  PHASES.forEach(function (ph) {
+    ph.tasks.forEach(function (t) {
+      if (onlyReq && t.tag !== "必做") return;
+      total++;
+      if (state[t.id]) done++;
+    });
+  });
+  const pct = total ? Math.round(done * 100 / total) : 0;
+  document.getElementById("bar").style.width = pct + "%";
+  document.getElementById("pct").textContent = pct + "%";
+  document.getElementById("cnt").textContent = done + " / " + total + " 项";
+}
+
+document.getElementById("filter").onclick = function () {
+  onlyReq = !onlyReq;
+  this.classList.toggle("on", onlyReq);
+  this.textContent = onlyReq ? "显示全部" : "只看必做";
+  render();
+};
+document.getElementById("expand").onclick = function () {
+  document.querySelectorAll("section.phase").forEach(function (s) { s.classList.remove("collapsed"); });
+};
+document.getElementById("collapse").onclick = function () {
+  document.querySelectorAll("section.phase").forEach(function (s) { s.classList.add("collapsed"); });
+};
+document.getElementById("reset").onclick = function () {
+  if (confirm("清空所有打勾记录？这个操作不能撤销。")) {
+    state = {};
+    save();
+    render();
+  }
+};
+
+render();
+</script>
+</body>
+</html>

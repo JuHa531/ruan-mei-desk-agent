@@ -1,0 +1,25 @@
+{
+  "backend": {
+    "base_url": "http://127.0.0.1:9880",
+    "type": "index_tts"
+  },
+  "timeout_seconds": 300,
+  "default_voice": "my-voice",
+  "voices": {
+    "my-voice": {
+      "ref_audio_path": "G:/ai/voice/ref/my-voice.wav",
+      "text_lang": "zh",
+      "use_random": false,
+      "emotions": {
+        "温柔": {
+          "emo_vector": [0.2, 0, 0, 0, 0, 0, 0, 0.8],
+          "emo_alpha": 0.7
+        },
+        "撒娇": {
+          "emo_text": "我好想你呀，抱抱我嘛~",
+          "emo_alpha": 0.8
+        }
+      }
+    }
+  }
+}

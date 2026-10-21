@@ -1,0 +1,107 @@
+[
+  {
+    "id": 1,
+    "file": "assets/bg-lib-01.jpg",
+    "thumb": "assets/bg-lib-01-thumb.jpg",
+    "width": 720,
+    "height": 1920
+  },
+  {
+    "id": 2,
+    "file": "assets/bg-lib-02.jpg",
+    "thumb": "assets/bg-lib-02-thumb.jpg",
+    "width": 1446,
+    "height": 1920
+  },
+  {
+    "id": 3,
+    "file": "assets/bg-lib-03.jpg",
+    "thumb": "assets/bg-lib-03-thumb.jpg",
+    "width": 768,
+    "height": 1280
+  },
+  {
+    "id": 4,
+    "file": "assets/bg-lib-04.jpg",
+    "thumb": "assets/bg-lib-04-thumb.jpg",
+    "width": 1488,
+    "height": 1920
+  },
+  {
+    "id": 5,
+    "file": "assets/bg-lib-05.jpg",
+    "thumb": "assets/bg-lib-05-thumb.jpg",
+    "width": 1222,
+    "height": 1920
+  },
+  {
+    "id": 6,
+    "file": "assets/bg-lib-06.jpg",
+    "thumb": "assets/bg-lib-06-thumb.jpg",
+    "width": 1131,
+    "height": 1920
+  },
+  {
+    "id": 7,
+    "file": "assets/bg-lib-07.jpg",
+    "thumb": "assets/bg-lib-07-thumb.jpg",
+    "width": 1328,
+    "height": 1920
+  },
+  {
+    "id": 8,
+    "file": "assets/bg-lib-08.jpg",
+    "thumb": "assets/bg-lib-08-thumb.jpg",
+    "width": 832,
+    "height": 1216
+  },
+  {
+    "id": 9,
+    "file": "assets/bg-lib-09.jpg",
+    "thumb": "assets/bg-lib-09-thumb.jpg",
+    "width": 1446,
+    "height": 1920
+  },
+  {
+    "id": 10,
+    "file": "assets/bg-lib-10.jpg",
+    "thumb": "assets/bg-lib-10-thumb.jpg",
+    "width": 1314,
+    "height": 1920
+  },
+  {
+    "id": 11,
+    "file": "assets/bg-lib-11.jpg",
+    "thumb": "assets/bg-lib-11-thumb.jpg",
+    "width": 1024,
+    "height": 1360
+  },
+  {
+    "id": 12,
+    "file": "assets/bg-lib-12.jpg",
+    "thumb": "assets/bg-lib-12-thumb.jpg",
+    "width": 832,
+    "height": 1216
+  },
+  {
+    "id": 13,
+    "file": "assets/bg-lib-13.jpg",
+    "thumb": "assets/bg-lib-13-thumb.jpg",
+    "width": 1920,
+    "height": 1357
+  },
+  {
+    "id": 14,
+    "file": "assets/bg-lib-14.jpg",
+    "thumb": "assets/bg-lib-14-thumb.jpg",
+    "width": 1280,
+    "height": 1920
+  },
+  {
+    "id": 15,
+    "file": "assets/bg-lib-15.jpg",
+    "thumb": "assets/bg-lib-15-thumb.jpg",
+    "width": 1328,
+    "height": 1920
+  }
+]

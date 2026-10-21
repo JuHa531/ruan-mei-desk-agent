@@ -1,0 +1,36 @@
+# Local runtime state and browser profiles
+logs/
+app/app-profile/
+app/desktop-profile/
+**/__pycache__/
+*.py[cod]
+*.log
+
+# Private user data and live local configuration
+data/习惯.md
+data/提醒.json
+data/提醒记录.json
+data/听歌记录.json
+app/appearance.json
+voice/voices.json
+
+# Personal machine notes
+C盘清理记录.md
+手机与设备连接.md
+下载清单.md
+
+# Large media, model weights, and generated audio
+app/assets/*.mp4
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.pth
+*.ckpt
+*.onnx
+*.gguf
+
+# Generated/test output
+out.wav
+*.tmp
+*.bak
