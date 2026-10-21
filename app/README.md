@@ -13,5 +13,6 @@
 | `smtc.ps1` | Windows 媒体会话桥接，用于读取和控制 QQ 音乐。 |
 | `ocr_image.ps1` | 使用 Windows OCR 读取图片文字。 |
 | `appearance.example.json` | 外观配置示例，不含个人目录和大型背景视频。 |
+| `README.md` | 本目录的用途和文件清单。 |
 
 子目录 [`assets/`](assets/README.md) 保存界面图片、图标、表情和对应元数据。
