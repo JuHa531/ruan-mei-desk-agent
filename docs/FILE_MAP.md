@@ -25,6 +25,7 @@ from the source distribution are listed in
 
 | File | Purpose |
 | --- | --- |
+| `app/README.md` | Directory index describing every file in `app/`. |
 | `app/agent_server.py` | Main backend: streaming chat API, Ollama function-calling loop, tools, RAG hooks, reminders, media control, safety checks, and desktop-service orchestration. |
 | `app/agent.html` | Main three-column desktop UI: chat, sessions, character tasks, backgrounds, stickers, speech playback, and responsive window layouts. |
 | `app/desktop.py` | PyWebView2 desktop shell, frameless window controls, service startup, health watching, and cache-busting. |
@@ -39,6 +40,7 @@ from the source distribution are listed in
 
 | File | Purpose |
 | --- | --- |
+| `app/assets/README.md` | Directory index for icons, backgrounds, thumbnails, stickers, and metadata. |
 | `app/assets/bg.jpg` | Default static application background. |
 | `app/assets/bg-library.json` | Metadata for the background library and its thumbnails. |
 | `app/assets/说明.txt` | Source and usage notes for the bundled visual assets. |
@@ -92,6 +94,7 @@ from the source distribution are listed in
 
 | File | Purpose |
 | --- | --- |
+| `data/README.md` | Directory index explaining public templates and excluded runtime files. |
 | `data/template_character.json` | Example character record used by the character setup workflow. |
 | `data/template_instruction.jsonl` | Minimal instruction-tuning sample in JSONL format. |
 | `data/template_notes.md` | Empty note template for source material and style extraction. |
@@ -100,6 +103,7 @@ from the source distribution are listed in
 
 | File | Purpose |
 | --- | --- |
+| `scripts/README.md` | Directory index describing every utility script and regression test. |
 | `scripts/add_source_titles.py` | Replaces source filenames with Bilibili video titles and BV IDs in training data. |
 | `scripts/audio_to_pairs.py` | Converts character voice clips into text/audio training pairs using local ASR. |
 | `scripts/build_dialogues.py` | Reconstructs subtitle streams into multi-turn dialogue training data. |
@@ -149,6 +153,7 @@ backend behavior.
 
 | File | Purpose |
 | --- | --- |
+| `voice/README.md` | Directory index for TTS, ASR, adapter backends, and configuration examples. |
 | `voice/asr_server.py` | Local FunASR/SenseVoice HTTP service for speech recognition. |
 | `voice/tts_server.py` | OpenAI-compatible TTS adapter with emotion mapping, retries, tempo correction, noise gating, and WAV repair. |
 | `voice/index_tts_backend.py` | HTTP wrapper that exposes IndexTTS2 to the TTS adapter. |
@@ -159,6 +164,8 @@ backend behavior.
 
 | File | Purpose |
 | --- | --- |
+| `archive/README.md` | Directory index explaining the historical launcher archive. |
+| `archive/old-browser-launcher/README.md` | Directory index for the two legacy launcher files. |
 | `archive/old-browser-launcher/open_ruanmei.vbs` | Legacy hidden browser-launcher entry point retained for reference. |
 | `archive/old-browser-launcher/rm_app.ps1` | Legacy browser-mode launcher superseded by `app/desktop.py`. |
 
@@ -166,5 +173,6 @@ backend behavior.
 
 | File | Purpose |
 | --- | --- |
+| `docs/README.md` | Directory index for publishing and maintenance documentation. |
 | `docs/FILE_MAP.md` | This complete inventory of uploaded files and their responsibilities. |
 | `docs/ASSETS_AND_PRIVACY.md` | Explains excluded personal data, large media, model files, and restoration steps. |

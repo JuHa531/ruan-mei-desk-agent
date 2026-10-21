@@ -106,12 +106,32 @@ python .\app\agent_server.py --no-browser --workdir "$env:USERPROFILE\Documents\
 | 目录 | 内容 |
 | --- | --- |
 | `app\` | 桌面应用、Agent 后端、Web UI、媒体控制和办公工具。 |
-| `voice\` | TTS、ASR 及语音服务配置示例。 |
-| `data\` | 运行时数据与公开模板。 |
+| `app\assets\` | 背景、图标、表情包及其元数据。 |
+| `archive\` | 已停用但仍保留的历史启动方式。 |
+| `data\` | 运行时数据目录与可公开的模板。 |
 | `scripts\` | 素材导入、数据整理和界面自检工具。 |
 | `docs\` | 文件说明和隐私/素材说明。 |
+| `voice\` | TTS、ASR 及语音服务配置示例。 |
 
-逐文件作用见 [`docs/FILE_MAP.md`](docs/FILE_MAP.md)。
+每个子目录都有自己的 `README.md`，进入目录即可看到其中每个文件的作用。
+完整索引见 [`docs/FILE_MAP.md`](docs/FILE_MAP.md)。
+
+### 根目录文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `.gitattributes` | Git 换行和二进制文件规则。 |
+| `.gitignore` | 排除个人数据、缓存、日志、媒体和模型文件。 |
+| `README.md` | 项目简介、功能和启动使用说明。 |
+| `TASKS.md` | 项目开发与验证清单。 |
+| `tasks.html` | 可在浏览器中查看的交互式清单。 |
+| `CHARACTER.md` | 角色人设和训练资料说明。 |
+| `VOICE.md` | 语音架构、音色配置和音频问题记录。 |
+| `ruanmei.Modelfile` | Ollama 模型定义与人设参数。 |
+| `启动阮梅.bat` | 一键启动桌面应用。 |
+| `启动语音.ps1` | 启动 TTS 和语音识别服务。 |
+| `修复麦克风权限.bat` | 修复 Windows 麦克风访问权限。 |
+| `修复Tailscale.bat` | 修复 Tailscale 远程连接。 |
 
 ## 端口
 
