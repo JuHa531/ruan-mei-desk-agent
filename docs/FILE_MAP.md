@@ -10,7 +10,7 @@ from the source distribution are listed in
 | --- | --- |
 | `.gitattributes` | Normalizes line endings and marks image files as binary. |
 | `.gitignore` | Excludes local data, logs, browser profiles, large media, model weights, and generated audio. |
-| `README.md` | Main project manual: environment setup, local model workflow, desktop app, tools, troubleshooting, and design history. |
+| `README.md` | Repository landing page: product features, required environment, configuration setup, launch methods, and usage examples. |
 | `TASKS.md` | Ordered implementation checklist with validation steps and known prerequisites. |
 | `tasks.html` | Standalone interactive version of the setup checklist. |
 | `CHARACTER.md` | Character prompt and training-data workflow for the Ruan Mei persona. |
