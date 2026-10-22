@@ -98,6 +98,7 @@ from the source distribution are listed in
 | `data/template_character.json` | Example character record used by the character setup workflow. |
 | `data/template_instruction.jsonl` | Minimal instruction-tuning sample in JSONL format. |
 | `data/template_notes.md` | Empty note template for source material and style extraction. |
+| `data/阮梅角色故事.md` | Four-part character backstory used for question-specific memory retrieval. |
 
 ## Data and voice pipeline scripts
 

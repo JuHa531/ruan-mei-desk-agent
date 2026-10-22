@@ -75,6 +75,8 @@ HABITS_FILE = os.path.join(ROOT, "data", "习惯.md")
 REMINDERS_FILE = os.path.join(ROOT, "data", "提醒.json")
 FIRED_FILE = os.path.join(ROOT, "data", "提醒记录.json")
 LISTEN_FILE = os.path.join(ROOT, "data", "听歌记录.json")
+RUANMEI_STORY_FILE = os.path.join(ROOT, "data", "阮梅角色故事.md")
+RUANMEI_MODELFILE = os.path.join(ROOT, "ruanmei.Modelfile")
 
 # 到点提醒 = 服务器自己合成语音 + 用这台机器的音箱放出来。
 # 为什么不靠页面：页面没开（或者最小化）也得响，这才是"日用"。
@@ -1459,6 +1461,77 @@ def _habit_sections(raw):
             continue
         cur["lines"].append(ln.rstrip())
     return out
+
+
+RUANMEI_STORY_HINTS = {
+    "角色故事一：童年与「爱」": (
+        "童年", "小时候", "外婆", "母亲", "父亲", "姨妈", "家人", "家",
+        "爱", "气味", "戏", "点心", "糕点", "青团", "冰川", "丰饶",
+    ),
+    "角色故事二：父母、名字与「智识」": (
+        "父母", "葬礼", "去世", "死亡", "名字", "昵称", "实验室",
+        "火萤", "物种", "智识", "博识尊", "辜负",
+    ),
+    "角色故事三：隐士与「生命」": (
+        "隐居", "隐士", "创造生命", "飞鲸", "游鹿", "生命本质",
+        "生命", "星神", "天才俱乐部", "邀请函", "家乡",
+    ),
+    "角色故事四：模拟宇宙与不信任": (
+        "模拟宇宙", "黑塔", "螺丝咕姆", "斯蒂芬", "社交", "朋友",
+        "项目", "不信任", "信任", "电饭煲", "温床", "俱乐部",
+    ),
+}
+
+
+def ruanmei_setting_text():
+    """读取 Modelfile 中的完整 SYSTEM，供带动态资料时一起发送。"""
+    try:
+        with open(RUANMEI_MODELFILE, "r", encoding="utf-8") as f:
+            raw = f.read()
+        start = raw.index('SYSTEM """') + len('SYSTEM """')
+        end = raw.rindex('"""')
+        return raw[start:end].strip()
+    except Exception:
+        return ""
+
+
+def ruanmei_lore_for_prompt(user_msg="", limit=1100):
+    """只挑与当前问题相关的角色亲历段落，避免每轮注入整篇故事。"""
+    try:
+        with open(RUANMEI_STORY_FILE, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except Exception:
+        return ""
+    sections = _habit_sections(raw)
+    q = str(user_msg or "").lower()
+    if not q:
+        return ""
+    scored = []
+    for idx, sec in enumerate(sections):
+        title = sec["title"]
+        hints = RUANMEI_STORY_HINTS.get(title, ())
+        hits = sum(1 for h in hints if h.lower() in q)
+        if hits:
+            scored.append((hits, idx, sec))
+    if not scored:
+        return ""
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    parts, used = [], 0
+    for _, _, sec in scored:
+        block = ("## " + sec["title"] + "\n" + "\n".join(sec["lines"])).strip()
+        if parts and used + len(block) + 2 > limit:
+            break
+        if not parts and len(block) > limit:
+            block = block[:limit]
+        parts.append(block)
+        used += len(block) + 2
+        if used >= limit:
+            break
+    if not parts:
+        return ""
+    return ("【本轮相关亲历记忆】下面只用于回答当前问题。可以自然转述，"
+            "不要逐字背诵，也不要把未出现的段落自行补全。\n\n"
+            + "\n\n".join(parts))
 
 
 def habits_for_prompt(user_msg="", limit=1400):
@@ -2933,36 +3006,50 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(m, dict) and m.get("role") == "user":
                     last_user = m.get("content") or ""
                     break
+            character_memory = ruanmei_lore_for_prompt(last_user)
             # 给 tools schema / 系统提示 / 回复留出余量，剩下的才是历史预算。
-            history_budget = max(1200, LLM_NUM_CTX - 2200)
+            memory_tokens = approx_tokens(character_memory) if character_memory else 0
+            history_budget = max(1200, LLM_NUM_CTX - 2200 - memory_tokens)
             messages, dropped = trim_history(raw_messages, history_budget)
             if dropped:
                 print("[上下文] 省略较早的 %d 条消息（预算约 %d token）"
                       % (dropped, history_budget))
 
-            # 把「习惯」文件塞在最前面。做成一条 system 消息而不是写进 Modelfile，
-            # 好处是改完立刻生效：不用重新 ollama create，也不会影响角色人设那一份提示词。
+            # 动态资料必须和完整人设合并成“一条” system。
+            # 实测 Ollama 遇到额外 system 消息时会覆盖 Modelfile 里的 SYSTEM；
+            # 分开插会让人设直接消失，回答退回通用 AI 腔。
+            dynamic_parts = []
             habits = habits_for_prompt(last_user)
             if habits:
-                messages = [{"role": "system", "content":
-                             "主人以前明确交代过的习惯（直接照办，不用每次再问，"
-                             "也不要主动把这些念给他听）。\n"
-                             "这里面既有干活时的偏好，也有生活习惯（作息、吃饭、出门、健康、"
-                             "花钱、娱乐）。他在日常对话里提到「我一般…」「我习惯…」这类"
-                             "面向以后的生活安排时，用 remember 记到「生活习惯」下面对应的小节里。\n"
-                             + ("" if not habits_life_empty() else
-                                "注意：「生活习惯」那几节现在还是空的。他要你排日程、规划表、"
-                                "作息安排时，先问清几件事（几点起、通勤/路上多久、每天固定必须做的、"
-                                "晚上几点想停）再排；不要凭空编一份通用模板糊弄他。\n")
-                             + (music_taste_brief() + "\n" if music_taste_brief() else "")
-                             + habits}] + list(messages)
+                taste = music_taste_brief()
+                dynamic_parts.append(
+                    "【主人的长期偏好】\n"
+                    "主人以前明确交代过的习惯（直接照办，不用每次再问，"
+                    "也不要主动把这些念给他听）。\n"
+                    "这里面既有干活时的偏好，也有生活习惯（作息、吃饭、出门、健康、"
+                    "花钱、娱乐）。他在日常对话里提到「我一般…」「我习惯…」这类"
+                    "面向以后的生活安排时，用 remember 记到「生活习惯」下面对应的小节里。\n"
+                    + ("" if not habits_life_empty() else
+                       "注意：「生活习惯」那几节现在还是空的。他要你排日程、规划表、"
+                       "作息安排时，先问清几件事（几点起、通勤/路上多久、每天固定必须做的、"
+                       "晚上几点想停）再排；不要凭空编一份通用模板糊弄他。\n")
+                    + (taste + "\n" if taste else "")
+                    + habits)
             # 唤醒词：他是直接点名叫你，别当成"他在自称亲爱的"，正常答应并按后面的要求做
             if any(WAKE_WORD in str(m.get("content") or "")
                    for m in messages if m.get("role") == "user"):
-                messages = [{"role": "system", "content":
-                             "（这一轮主人用「%s」叫你了 —— 那是在直呼你、点你的名，"
-                             "答应一声就好，然后照他后面的要求做。别把它理解成他在自称。）"
-                             % WAKE_WORD}] + list(messages)
+                dynamic_parts.append(
+                    "（这一轮主人用「%s」叫你了 —— 那是在直呼你、点你的名，"
+                    "答应一声就好，然后照他后面的要求做。别把它理解成他在自称。）"
+                    % WAKE_WORD)
+            if character_memory:
+                dynamic_parts.append(character_memory)
+            if dynamic_parts:
+                setting = ruanmei_setting_text()
+                system_text = "\n\n".join(([setting] if setting else []) + dynamic_parts)
+                messages = [{"role": "system", "content": system_text}] + [
+                    m for m in messages if m.get("role") != "system"
+                ]
 
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson")
