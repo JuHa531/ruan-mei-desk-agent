@@ -99,6 +99,7 @@ from the source distribution are listed in
 | `data/template_instruction.jsonl` | Minimal instruction-tuning sample in JSONL format. |
 | `data/template_notes.md` | Empty note template for source material and style extraction. |
 | `data/阮梅角色故事.md` | Four-part character backstory used for question-specific memory retrieval. |
+| `data/ruanmei_reaction_examples.jsonl` | Curated situation-to-response examples for character and tone training. |
 
 ## Data and voice pipeline scripts
 
@@ -110,6 +111,7 @@ from the source distribution are listed in
 | `scripts/build_dialogues.py` | Reconstructs subtitle streams into multi-turn dialogue training data. |
 | `scripts/build_training_sets.py` | Produces task-specific training subsets from the reviewed master dataset. |
 | `scripts/build_tts_dataset.py` | Builds a GPT-SoVITS dataset from reviewed transcripts and source audio. |
+| `scripts/build_economy_training.py` | Builds a lower-token training set with a compact system prompt. |
 | `scripts/clean_data.py` | Cleans OCR-derived text and normalizes known extraction errors. |
 | `scripts/dedupe_train.py` | Deduplicates training samples and writes a review list. |
 | `scripts/export_gguf.py` | Merges a LoRA adapter, exports GGUF, and creates an Ollama Modelfile. |
@@ -177,3 +179,4 @@ backend behavior.
 | `docs/README.md` | Directory index for publishing and maintenance documentation. |
 | `docs/FILE_MAP.md` | This complete inventory of uploaded files and their responsibilities. |
 | `docs/ASSETS_AND_PRIVACY.md` | Explains excluded personal data, large media, model files, and restoration steps. |
+| `docs/COST_OPTIMIZATION.md` | Documents measured token reductions and the new context-budget strategy. |

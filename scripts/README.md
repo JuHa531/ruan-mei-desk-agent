@@ -11,6 +11,7 @@
 | `build_dialogues.py` | 把字幕整理成多轮对话数据。 |
 | `build_training_sets.py` | 从主数据生成不同训练用途的子集。 |
 | `build_tts_dataset.py` | 构建 GPT-SoVITS 语音数据集。 |
+| `build_economy_training.py` | 合并故事、对话和反应样本，生成精简 system 的经济版训练集。 |
 | `clean_data.py` | 清洗 OCR 文本和已知识别错误。 |
 | `dedupe_train.py` | 训练数据去重并生成校对清单。 |
 | `export_timeline.py` | 从 OCR 缓存重建完整时间线。 |

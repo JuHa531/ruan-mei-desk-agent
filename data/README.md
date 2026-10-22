@@ -10,6 +10,7 @@
 | `template_instruction.jsonl` | 指令微调数据格式示例。 |
 | `template_notes.md` | 原始笔记和风格素材模板。 |
 | `阮梅角色故事.md` | 阮梅四段亲历故事，供按问题检索并注入角色记忆。 |
+| `ruanmei_reaction_examples.jsonl` | 20 条「情境 → 反应」角色对话样本，用于提高回答数据占比。 |
 | `README.md` | 本目录的用途与运行时文件说明。 |
 
 ## 本地运行时文件（不上传）

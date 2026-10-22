@@ -1495,7 +1495,7 @@ def ruanmei_setting_text():
         return ""
 
 
-def ruanmei_lore_for_prompt(user_msg="", limit=1100):
+def ruanmei_lore_for_prompt(user_msg="", limit=800):
     """只挑与当前问题相关的角色亲历段落，避免每轮注入整篇故事。"""
     try:
         with open(RUANMEI_STORY_FILE, "r", encoding="utf-8") as f:
@@ -1959,6 +1959,69 @@ TOOLS = [
             "required": ["action"]}}},
 ]
 
+TOOL_BY_NAME = {t["function"]["name"]: t for t in TOOLS}
+TOOL_GROUPS = {
+    "file": ("list_dir", "read_file", "write_file", "search_files"),
+    "system": ("run_cmd", "system_info", "gpu_check", "install_app"),
+    "app": ("app",),
+    "android": ("android",),
+    "image": ("see_image",),
+    "docx": ("make_docx",),
+    "xlsx": ("make_xlsx",),
+    "pptx": ("make_pptx",),
+    "dayplan": ("make_dayplan",),
+    "video": ("edit_video",),
+    "memory": ("remember", "forget"),
+    "reminder": ("remind",),
+    "music": ("music",),
+}
+TOOL_TRIGGERS = {
+    "file": ("文件", "文件夹", "目录", "路径", "读取", "写入", "新建", "创建",
+             "修改", "查找", "搜索", "代码", "日志", "截图"),
+    "system": ("电脑", "系统", "显卡", "gpu", "cpu", "内存", "温度", "进程",
+               "驱动", "安装", "卸载", "修复", "报错", "错误", "端口", "服务",
+               "命令", "诊断", "检查"),
+    "app": ("打开", "启动", "切换", "关闭", "窗口", "应用", "程序"),
+    "android": ("手机", "平板", "安卓", "android", "adb"),
+    "image": ("图片", "照片", "看图", "图像", "识别", "ocr", "扫描件"),
+    "docx": ("word", "docx", "文档", "报告", "方案", "合同"),
+    "xlsx": ("excel", "xlsx", "表格", "台账", "预算", "清单"),
+    "pptx": ("ppt", "幻灯片", "演示", "汇报"),
+    "dayplan": ("日程", "作息", "时间表", "规划表"),
+    "video": ("视频", "剪辑", "片头", "片尾", "动图", "分辨率", "抽音频",
+              "拼接", "变速", "静音"),
+    "memory": ("记住", "忘掉", "忘记", "习惯", "以后都", "长期", "我一般"),
+    "reminder": ("提醒", "每天", "工作日", "每周", "叫我"),
+    "music": ("音乐", "歌单", "歌曲", "听歌", "点歌", "切歌",
+              "下一首", "上一首", "音量", "qq音乐"),
+}
+GENERAL_TOOLS = ("list_dir", "read_file", "write_file", "run_cmd", "app")
+
+
+def select_tools(user_msg):
+    """按本轮意图只发送相关工具，减少每次请求的固定 schema token。"""
+    q = str(user_msg or "").lower()
+    if not q:
+        return []
+    groups = set()
+    for group, words in TOOL_TRIGGERS.items():
+        if any(w in q for w in words):
+            groups.add(group)
+    if (("播放" in q or "暂停" in q)
+            and not any(w in q for w in ("视频", "电影", "电视", "录音", "播客"))):
+        groups.add("music")
+    if re.search(r"(?:^|[\s\"'])(?:[a-z]:\\|/)", q):
+        groups.add("file")
+    if groups:
+        names = []
+        for group in groups:
+            names.extend(TOOL_GROUPS[group])
+        unique = list(dict.fromkeys(names))
+        return [TOOL_BY_NAME[n] for n in unique if n in TOOL_BY_NAME]
+    if re.search(r"帮我|处理|操作|看一下|看看|用过|完成|执行|生成|创建|搜索|查询", q):
+        return [TOOL_BY_NAME[n] for n in GENERAL_TOOLS]
+    return []
+
 
 def safe_path(workdir, rel, extra_read=()):
     """
@@ -2285,7 +2348,7 @@ def android_tool(action, args, workdir):
             if bad in low:
                 return "[工具出错] 这条命令会破坏手机数据，已拒绝：%s" % a[:80]
         rc, out, _ = adb_run(["shell", a], timeout=180)
-        return "[手机] 退出码 %d\n%s" % (rc, out[:2500])
+        return "[手机] 退出码 %d\n%s" % (rc, clip(out, head=700, tail=300))
 
     return ("[工具出错] 不认识的 action：%s。可用：devices（看连了没）、screenshot（截屏）、"
             "pull（从手机拉文件）、push（往手机传文件）、apps（列应用）、"
@@ -2323,10 +2386,10 @@ def winget(action, query, user_msg):
         return "[工具出错] winget 执行失败：%s" % str(e)[:200]
     out = ((r.stdout or "") + (r.stderr or "")).strip()
     head = "[winget %s] 退出码 %d\n" % (action, r.returncode)
-    return head + out[:3000]
+    return head + clip(out, head=800, tail=300)
 
 
-def clip(text, head=1800, tail=700):
+def clip(text, head=900, tail=300):
     """
     工具输出太长就砍中间。
 
@@ -2341,6 +2404,27 @@ def clip(text, head=1800, tail=700):
         return text
     return ("%s\n...(中间省略 %d 字，太长会撑爆模型上下文)...\n%s"
             % (text[:head], len(text) - head - tail, text[-tail:]))
+
+
+def compact_tool_result(name, text):
+    """回灌给模型的工具结果只留结论和关键上下文；界面仍可显示完整结果。"""
+    result = str(text or "")
+    if not result:
+        return "（工具没有输出）"
+    urgent = re.search(r"\[工具出错\]|\[需要确认\]|\[工具提示\]|退出码\s+\d+", result)
+    if urgent and urgent.start() < 300:
+        prefix = result[:500]
+        rest = result[500:]
+        return prefix + (("\n" + clip(rest, head=500, tail=200)) if rest else "")
+    if name in ("list_dir", "search_files", "app", "android"):
+        return clip(result, head=1200, tail=250)
+    if name == "read_file":
+        return clip(result, head=1100, tail=250) + "\n（如内容不足，请缩小读取范围或分段读取）"
+    if name == "run_cmd":
+        return clip(result, head=700, tail=300)
+    if name.startswith("make_") or name == "write_file":
+        return result[:700]
+    return clip(result, head=800, tail=250)
 
 
 def approx_tokens(text):
@@ -2397,7 +2481,7 @@ def exec_tool(name, args, workdir, extras_read=(), ollama_base="", user_msg=""):
             n = int(args.get("max_chars") or 4000)
             with open(p, "r", encoding="utf-8", errors="replace") as f:
                 data = f.read(n)
-            return clip(data, head=2200, tail=600) + ("\n...(已截断)" if len(data) >= n else "")
+            return clip(data, head=1100, tail=300) + ("\n...(已截断)" if len(data) >= n else "")
 
         if name == "write_file":
             p = safe_path(workdir, args["path"])
@@ -3007,17 +3091,10 @@ class Handler(BaseHTTPRequestHandler):
                     last_user = m.get("content") or ""
                     break
             character_memory = ruanmei_lore_for_prompt(last_user)
-            # 给 tools schema / 系统提示 / 回复留出余量，剩下的才是历史预算。
-            memory_tokens = approx_tokens(character_memory) if character_memory else 0
-            history_budget = max(1200, LLM_NUM_CTX - 2200 - memory_tokens)
-            messages, dropped = trim_history(raw_messages, history_budget)
-            if dropped:
-                print("[上下文] 省略较早的 %d 条消息（预算约 %d token）"
-                      % (dropped, history_budget))
+            turn_tools = select_tools(last_user)
 
-            # 动态资料必须和完整人设合并成“一条” system。
-            # 实测 Ollama 遇到额外 system 消息时会覆盖 Modelfile 里的 SYSTEM；
-            # 分开插会让人设直接消失，回答退回通用 AI 腔。
+            # 动态资料必须和完整人设合并成“一条” system。Ollama 遇到额外
+            # system 消息时会覆盖 Modelfile 里的 SYSTEM，分开插会让人设消失。
             dynamic_parts = []
             habits = habits_for_prompt(last_user)
             if habits:
@@ -3037,16 +3114,27 @@ class Handler(BaseHTTPRequestHandler):
                     + habits)
             # 唤醒词：他是直接点名叫你，别当成"他在自称亲爱的"，正常答应并按后面的要求做
             if any(WAKE_WORD in str(m.get("content") or "")
-                   for m in messages if m.get("role") == "user"):
+                   for m in raw_messages if m.get("role") == "user"):
                 dynamic_parts.append(
                     "（这一轮主人用「%s」叫你了 —— 那是在直呼你、点你的名，"
                     "答应一声就好，然后照他后面的要求做。别把它理解成他在自称。）"
                     % WAKE_WORD)
             if character_memory:
                 dynamic_parts.append(character_memory)
-            if dynamic_parts:
-                setting = ruanmei_setting_text()
-                system_text = "\n\n".join(([setting] if setting else []) + dynamic_parts)
+            setting = ruanmei_setting_text()
+            system_text = "\n\n".join(([setting] if setting else []) + dynamic_parts)
+
+            # 历史预算必须扣掉实际人设和本轮工具 schema，而不是拍一个固定值。
+            tools_json = json.dumps(turn_tools, ensure_ascii=False, separators=(",", ":"))
+            fixed_tokens = approx_tokens(system_text) + approx_tokens(tools_json)
+            history_budget = max(400, LLM_NUM_CTX - fixed_tokens - 1200)
+            messages, dropped = trim_history(raw_messages, history_budget)
+            if dropped:
+                print("[上下文] 省略较早的 %d 条消息（预算约 %d token，工具 %d 个）"
+                      % (dropped, history_budget, len(turn_tools)))
+                system_text += ("\n\n（较早的 %d 条对话已为节省上下文省略；"
+                                "若其中可能有仍有效的约束，回答前先向主人确认。）" % dropped)
+            if system_text:
                 messages = [{"role": "system", "content": system_text}] + [
                     m for m in messages if m.get("role") != "system"
                 ]
@@ -3085,7 +3173,7 @@ class Handler(BaseHTTPRequestHandler):
                     resp = ollama_chat(base, {
                         "model": self.cfg["model"],
                         "messages": messages,
-                        "tools": TOOLS,
+                        **({"tools": turn_tools} if turn_tools else {}),
                         "stream": False,
                         "think": bool(req.get("think", False)),
                         # 工具调用的可靠性对这个很敏感：4B 模型在 0.7 时经常"只说要做什么、
@@ -3096,7 +3184,7 @@ class Handler(BaseHTTPRequestHandler):
                     calls = msg.get("tool_calls") or []
                     if not calls:
                         # 该查不查：给它一次机会，退回去让它先看实际情况
-                        if not nudged and step == 0:
+                        if not nudged and step == 0 and not character_memory:
                             nudge = needs_look(messages, last_user)
                             if nudge:
                                 nudged = True
@@ -3138,7 +3226,8 @@ class Handler(BaseHTTPRequestHandler):
                                            last_user)
                         emit({"type": "tool_result", "name": name,
                               "result": result[:3000]})
-                        messages.append({"role": "tool", "content": result})
+                        messages.append({"role": "tool",
+                                         "content": compact_tool_result(name, result)})
                 else:
                     emit({"type": "text", "content": "（工具调用已达上限 8 轮，先停在这里）"})
             except Exception as e:
