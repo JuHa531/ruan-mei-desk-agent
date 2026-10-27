@@ -37,7 +37,7 @@ echo   Work folder: %WORKDIR%
 echo   (the browser should open automatically)
 echo.
 
-"D:\ai\envs\llm\python.exe" "%~dp0app\agent_server.py" --workdir "%WORKDIR%"
+"D:\ai\envs\meimei-app\Scripts\python.exe" "%~dp0app\agent_server.py" --workdir "%WORKDIR%"
 
 echo.
 echo   App stopped. Press any key to close.

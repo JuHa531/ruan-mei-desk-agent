@@ -40,14 +40,19 @@ emotion_strength 控制强度（0~1，默认 1.0）。八种内置情绪开箱�
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+sys.path.insert(0,os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'app'))
+from local_security import LocalRequestHandler
 
 
 # ---------------------------------------------------------------------------
@@ -160,15 +165,18 @@ def polish_audio(cfg, vcfg, data, speed):
     """
     对 GPT-SoVITS 的 WAV 做保守后处理。
 
-    speed_factor 直接改声码器上采样率，0.8 这类非原生速度容易带出金属感。
-    所以模型先按 1.0 合成，再由 atempo 只改变时长、不动音高。deesser 和
-    10 kHz 低通负责压掉最容易听成“电音”的高频毛刺，不影响说话主体。
+    这是可选的历史后处理路径，只有 speed_mode=post 时服务才调用。
+    本机用户的同源A/B确认旧滤波与变速链会加重电音；当前角色配置
+    使用模型原生节奏，直接返回模型WAV，不进入这里做时间伸缩或滤波。
     """
     if not vcfg.get("post_filter") and abs(float(speed) - 1.0) < 0.01:
         return data
     filters = []
     if abs(float(speed) - 1.0) >= 0.01:
-        filters.append("atempo=%.5f" % float(speed))
+        if vcfg.get("tempo_filter") == "rubberband":
+            filters.append("rubberband=tempo=%.5f:pitch=1:transients=smooth:detector=soft:formant=preserved" % float(speed))
+        else:
+            filters.append("atempo=%.5f" % float(speed))
     if vcfg.get("post_filter"):
         filters.append(str(vcfg["post_filter"]))
     if not filters:
@@ -181,7 +189,8 @@ def polish_audio(cfg, vcfg, data, speed):
     ]
     try:
         proc = subprocess.run(cmd, input=data, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, timeout=60)
+                              stderr=subprocess.PIPE, timeout=60,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if proc.returncode == 0 and proc.stdout:
             return fix_wav_stream_sizes(proc.stdout)
         detail = proc.stderr.decode("utf-8", "replace")[:200]
@@ -189,6 +198,53 @@ def polish_audio(cfg, vcfg, data, speed):
     except Exception as e:
         sys.stderr.write("[语音后处理] 跳过，保留原始音频：%s\n" % e)
     return data
+
+
+def role_speech_segments(text, limit=48, min_segment=18):
+    """Preserve punctuation and context without synthesizing a tiny greeting alone."""
+    pairs={'《':'》','“':'”','「':'」','『':'』','（':'）','(':')'}
+    stack=[]
+    parts=[]
+    buf=''
+    soft=0
+    for char in text:
+        buf+=char
+        if char in pairs:
+            stack.append(pairs[char])
+        elif stack and char==stack[-1]:
+            stack.pop()
+        if stack:
+            continue
+        if char in '，、,:： ':
+            soft=len(buf)
+        if char in '。！？!?；;\n':
+            if buf.strip(): parts.append(buf.strip())
+            buf='';soft=0
+        elif len(buf)>=limit:
+            cut=soft if soft>=12 else (len(buf) if not char.isascii() else 0)
+            if cut:
+                parts.append(buf[:cut].strip())
+                buf=buf[cut:];soft=0
+    if buf.strip(): parts.append(buf.strip())
+    grouped=[]
+    pending=''
+    for part in parts:
+        if pending:
+            if len(pending)+len(part)<=limit:
+                part=pending+part
+            else:
+                grouped.append(pending)
+            pending=''
+        if len(part)<min_segment:
+            pending=part
+        else:
+            grouped.append(part)
+    if pending:
+        if grouped and len(grouped[-1])+len(pending)<=limit:
+            grouped[-1]+=pending
+        else:
+            grouped.append(pending)
+    return '\n'.join(grouped)
 
 
 def build_gptsovits_payload(cfg, vcfg, text, speed, media_type, emo=None):
@@ -208,9 +264,13 @@ def build_gptsovits_payload(cfg, vcfg, text, speed, media_type, emo=None):
             "       请在配置的 emotions 里为每种情绪指定 ref_audio_path，\n"
             "       或者把 backend.type 换成 index_tts 使用真正的情绪控制。\n")
     lang = merged.get("text_lang", "zh")
-    # 原生速度交给 ffmpeg 调整，避免声码器使用非训练时的上采样率。
+    # post uses a native-speed model plus optional FFmpeg; native asks the model to pace speech.
     native = use_post_speed(cfg, vcfg, media_type)
     speed_factor = speed if native else merged.get("speed", 1.0) * speed
+    split_method = merged.get("text_split_method", "cut5")
+    if split_method == 'role_sentences':
+        text = role_speech_segments(text)
+        split_method = 'cut0'
     return {
         "text": text,
         "text_lang": lang,
@@ -220,7 +280,7 @@ def build_gptsovits_payload(cfg, vcfg, text, speed, media_type, emo=None):
         "top_k": merged.get("top_k", 15),
         "top_p": merged.get("top_p", 1.0),
         "temperature": merged.get("temperature", 1.0),
-        "text_split_method": merged.get("text_split_method", "cut5"),
+        "text_split_method": split_method,
         # 分句之间的静音时长。默认 0.3 秒太短，听起来"一句接一句喘不上气"；
         # 实测加到 0.65 秒明显自然。
         "fragment_interval": merged.get("fragment_interval", 0.3),
@@ -337,6 +397,75 @@ def wav_duration(data):
         return None
 
 
+def space_speech_pauses(data, text, pause_padding=0.0, opening_pause=0.0):
+    """Insert silence in existing quiet gaps; retain every original PCM sample.
+
+    Short addresses stay in their original synthesis context.  Only internal
+    low-energy runs of at least 160ms qualify; no phoneme alignment is assumed.
+    The opening-address preference is conservative and only applies to 亲爱的，.
+    """
+    import array
+    import io
+    import wave
+    pause_padding=max(0.0,min(float(pause_padding),0.3))
+    opening_pause=max(0.0,min(float(opening_pause),1.0))
+    if not pause_padding and not opening_pause:
+        return data
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            params=w.getparams()
+            if w.getnchannels()!=1 or w.getsampwidth()!=2 or w.getcomptype()!='NONE':
+                return data
+            rate=w.getframerate()
+            pcm=w.readframes(w.getnframes())
+        samples=array.array('h',pcm)
+        if sys.byteorder!='little':samples.byteswap()
+        step=max(1,rate//100)
+        block_quiet=[]
+        for start in range(0,len(samples)-step+1,step):
+            block=samples[start:start+step]
+            block_quiet.append(max(abs(v) for v in block)<=512
+                and sum(v*v for v in block)<=len(block)*128*128)
+        runs=[];start=None;voiced=0
+        for i,quiet in enumerate(block_quiet+[False]):
+            if quiet and start is None:start=i
+            if not quiet:
+                if start is not None:
+                    if start>0 and i<len(block_quiet) and (i-start)*step/rate>=.16:
+                        runs.append((start*step,i*step,voiced*step/rate))
+                    start=None
+                voiced+=1
+        is_address=bool(re.match(r'^[\s“「\"\']*亲爱的[，,：:]',text))
+        opening_done=False
+        insertions=[]
+        for start,end,prior_voiced in runs:
+            extra=pause_padding
+            if (is_address and not opening_done and prior_voiced>=.35
+                    and .45<=start/rate<=2.5):
+                extra=max(extra,opening_pause-(end-start)/rate)
+                opening_done=True
+            count=round(extra*rate)
+            if count<=0:continue
+            # Insert near a zero crossing in the quietest 20ms window.  This
+            # avoids an audible jump without fading or modifying the speech.
+            window=max(1,rate//50)
+            candidates=range(start,max(start+1,end-window+1),max(1,step//2))
+            center=min(candidates,key=lambda p:sum(v*v for v in samples[p:p+window]))
+            position=min(range(center,min(end,center+window)),key=lambda p:abs(samples[p]))
+            insertions.append((position*2,b'\x00\x00'*count))
+        if not insertions:return data
+        pieces=[];previous=0
+        for position,silence in insertions:
+            pieces.extend((pcm[previous:position],silence));previous=position
+        pieces.append(pcm[previous:])
+        output=io.BytesIO()
+        with wave.open(output,'wb') as w:
+            w.setparams(params);w.writeframes(b''.join(pieces))
+        return output.getvalue()
+    except (EOFError,OSError,ValueError,wave.Error):
+        return data
+
+
 def looks_truncated(data, text, min_rate=5.0):
     """
     判断这次的合成是不是明显"念短了"。
@@ -348,7 +477,8 @@ def looks_truncated(data, text, min_rate=5.0):
     dur = wav_duration(data)
     if dur is None:
         return False
-    chars = len([c for c in text if not c.isspace()])
+    # Punctuation is silence, and an English word is not spoken one letter at a time.
+    chars = len(re.findall(r"[\u3400-\u9fff]|[A-Za-z]+|\d+", text))
     if chars < 12:
         return False          # 太短的句子本来就没几秒，别误判
     return dur < chars / min_rate
@@ -356,7 +486,41 @@ def looks_truncated(data, text, min_rate=5.0):
 
 def speech_min_rate(vcfg, speed):
     """按最终语速估算最短合理时长；0.8 倍速时约 4 字/秒。"""
-    return max(2.8, 5.0 * float(vcfg.get("speed", 1.0)) * float(speed))
+    return max(3.5, 7.0 * float(vcfg.get("speed", 1.0)) * float(speed))
+
+
+def wav_quality_issue(data, text, min_rate=5.0):
+    """Reject corrupt, near-silent or severely clipped WAVs, including long silent failures.
+
+    This is a signal guard, not an assessment of naturalness or voice identity.
+    """
+    import array
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            if not w.getnframes():
+                return "空音频"
+            if w.getsampwidth() != 2:
+                return None
+            samples = array.array("h", w.readframes(w.getnframes()))
+        if sys.byteorder != "little":
+            samples.byteswap()
+        sampled = samples[::max(1, len(samples) // 32000)]
+        peak = max(abs(v) for v in sampled)
+        rms = math.sqrt(sum(v*v for v in sampled) / len(sampled))
+        if peak < 130 or (rms < 6.5 and peak < 262):
+            return "近乎静音"
+        if sum(abs(v) >= 32760 for v in sampled) / len(sampled) > 0.02:
+            return "严重削波"
+    except (EOFError, OSError, ValueError, ZeroDivisionError, wave.Error):
+        return "无效 WAV"
+    if looks_truncated(data, text, min_rate):
+        return "疑似截断"
+    return None
+
+
+_BACKEND_LOCK = threading.Lock()
 
 
 def call_backend(cfg, payload, path=None):
@@ -370,8 +534,11 @@ def call_backend(cfg, payload, path=None):
     )
     timeout = cfg.get("timeout_seconds", 300)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.read()
+        # GPT-SoVITS 后端不是并发安全的。前端或其它客户端同时提两段时，
+        # 请求会互相拖慢甚至偶发 HTTP 错误；这里只串行保护真正耗时的模型调用。
+        with _BACKEND_LOCK:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
         raise RuntimeError(f"语音后端返回 {e.code}：{detail}") from e
@@ -380,6 +547,20 @@ def call_backend(cfg, payload, path=None):
             f"连不上语音后端（{url}）：{e.reason}\n"
             "先确认语音服务已经启动，且端口和配置里一致。"
         ) from e
+
+
+def call_backend_retry(cfg, payload, path=None):
+    """瞬时连接/后端错误重试；不改文本，避免重复逻辑。"""
+    tries = max(1, min(3, int(cfg.get("backend_retry", 2))))
+    last_err = None
+    for attempt in range(tries):
+        try:
+            return call_backend(cfg, payload, path)
+        except RuntimeError as e:
+            last_err = e
+            if attempt + 1 < tries:
+                time.sleep(0.25 * (attempt + 1))
+    raise last_err
 
 
 def resolve_voice(cfg, name):
@@ -404,7 +585,7 @@ def resolve_voice(cfg, name):
     raise KeyError(f"没有名为 {name!r} 的音色。可用：{', '.join(voices)}")
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(LocalRequestHandler):
     cfg = None
     server_version = "LocalTTSAdapter/1.0"
 
@@ -426,7 +607,8 @@ class Handler(BaseHTTPRequestHandler):
             for name, vcfg in self.cfg["voices"].items():
                 ids.append(name)
                 for emo in (vcfg.get("emotions") or {}):
-                    ids.append(f"{name}:{emo}")
+                    if not emo.startswith("_"):
+                        ids.append(f"{name}:{emo}")
                 if is_idx:
                     ids.extend(f"{name}:{e}" for e in EMO_ORDER)
             seen, uniq = set(), []
@@ -437,10 +619,17 @@ class Handler(BaseHTTPRequestHandler):
             data = [{"id": i, "object": "model", "owned_by": "local"} for i in uniq]
             self._json({"object": "list", "data": data})
         elif self.path.split("?")[0] == "/healthz":
-            self._json({"ok": True, "backend": self.cfg["backend"]["base_url"],
+            backend = self.cfg["backend"]["base_url"].rstrip("/")
+            probe = "/openapi.json" if self.cfg["backend"].get("type", "gpt_sovits") == "gpt_sovits" else "/healthz"
+            try:
+                with urllib.request.urlopen(backend + probe, timeout=3) as r:
+                    ok = r.status == 200
+            except (OSError, urllib.error.URLError):
+                ok = False
+            self._json({"ok": ok, "backend": backend,
                         "type": self.cfg["backend"].get("type", "gpt_sovits"),
                         "emotions": EMO_ORDER,
-                        "voices": list(self.cfg["voices"])})
+                        "voices": list(self.cfg["voices"])}, 200 if ok else 503)
         else:
             self._json({"error": "not found"}, 404)
 
@@ -452,10 +641,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+            if not isinstance(body,dict):
+                raise ValueError('请求体必须是JSON对象')
         except Exception as e:
             self._json({"error": f"请求体不是合法 JSON：{e}"}, 400)
             return
 
+        if not isinstance(body.get('input',''),str) or len(body.get('input',''))>10000:
+            self._json({'error':'input必须是不超过10000字的文本'},400);return
+        if any(body.get(key) is not None and not isinstance(body[key],str) for key in ('voice','emotion')):
+            self._json({'error':'voice和emotion必须是文本'},400);return
         text = (body.get("input") or "").strip()
         if not text:
             self._json({"error": "缺少 input 字段"}, 400)
@@ -467,6 +662,9 @@ class Handler(BaseHTTPRequestHandler):
             speed = float(body.get("speed") or 1.0)
         except (TypeError, ValueError):
             speed = 1.0
+        if not math.isfinite(speed) or not 0.5 <= speed <= 2.0:
+            self._json({"error": "speed 必须在 0.5 到 2.0 之间"}, 400)
+            return
 
         fmt = str(body.get("response_format") or "wav").lower()
         media_type, content_type = FORMAT_MAP.get(fmt, ("wav", "audio/wav"))
@@ -491,7 +689,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             payload = build_request(self.cfg, vcfg, text, speed, media_type, emo)
-            audio = call_backend(self.cfg, payload)
+            audio = call_backend_retry(self.cfg, payload)
             if use_post_speed(self.cfg, vcfg, media_type):
                 audio = polish_audio(self.cfg, vcfg, audio,
                                      float(vcfg.get("speed", 1.0)) * speed)
@@ -500,24 +698,29 @@ class Handler(BaseHTTPRequestHandler):
             tries = int(self.cfg.get("max_retry", 3))
             attempt = 1
             min_rate = speech_min_rate(vcfg, speed)
-            while (looks_truncated(audio, text, min_rate) and attempt < tries):
+            issue = wav_quality_issue(audio, text, min_rate) if media_type == "wav" else None
+            while issue and attempt < tries:
                 attempt += 1
-                sys.stderr.write("[重试] 第 %d 次合成结果疑似截断（%s），重来\n"
-                                 % (attempt, text[:20]))
+                sys.stderr.write("[重试] 第 %d 次合成：%s，重新采样\n" % (attempt, issue))
                 retry = dict(payload)
                 retry["seed"] = -1
                 try:
-                    cand = call_backend(self.cfg, retry)
+                    cand = call_backend_retry(self.cfg, retry)
                 except RuntimeError:
                     break
                 if use_post_speed(self.cfg, vcfg, media_type):
                     cand = polish_audio(self.cfg, vcfg, cand,
                                         float(vcfg.get("speed", 1.0)) * speed)
-                if not looks_truncated(cand, text, min_rate):
+                candidate_issue = wav_quality_issue(cand, text, min_rate)
+                if not candidate_issue:
                     audio = cand
+                    issue = None
                     break
-                if (wav_duration(cand) or 0) > (wav_duration(audio) or 0):
-                    audio = cand
+            if issue:
+                raise RuntimeError("合成音频未通过检查（%s），请重试；文字回复已保留。" % issue)
+            if media_type == 'wav':
+                audio=space_speech_pauses(audio,text,vcfg.get('pause_padding_seconds',0),
+                                          vcfg.get('opening_pause_seconds',0))
         except RuntimeError as e:
             self._json({"error": str(e)}, 502)
             return
@@ -545,11 +748,40 @@ def do_say(cfg, args):
         sys.exit(f"[错误] {e}")
     tag = f"，情绪 {emo_name}（强度 {args.say_strength}）" if emo_name else ""
     print(f"[信息] 后端 {cfg['backend']['base_url']}，音色 {name}{tag}")
-    audio = call_backend(cfg, build_request(cfg, vcfg, say_text, 1.0, "wav", emo))
+    audio = call_backend_retry(cfg, build_request(cfg, vcfg, say_text, 1.0, "wav", emo))
+    if use_post_speed(cfg, vcfg, "wav"):
+        audio = polish_audio(cfg, vcfg, audio, float(vcfg.get("speed", 1.0)))
+    audio=space_speech_pauses(audio,say_text,vcfg.get('pause_padding_seconds',0),
+                              vcfg.get('opening_pause_seconds',0))
     with open(args.say_out, "wb") as f:
         f.write(audio)
     print(f"[完成] {len(audio) / 1024:.0f} KB 已写入 {os.path.abspath(args.say_out)}")
     print("       播放它，确认音色和情绪对不对。")
+
+
+def warmup_backend(cfg):
+    """Move one-time model initialization to startup; no audio is played or saved."""
+    text = cfg.get("warmup_text")
+    if not text:
+        return
+    probe = cfg["backend"]["base_url"].rstrip("/") + (
+        "/openapi.json" if cfg["backend"].get("type", "gpt_sovits") == "gpt_sovits" else "/healthz")
+    for attempt in range(90):
+        try:
+            with urllib.request.urlopen(probe, timeout=2):
+                pass
+            break
+        except (OSError, urllib.error.URLError):
+            time.sleep(2)
+    else:
+        return
+    try:
+        _, vcfg, _ = resolve_voice(cfg, None)
+        start = time.perf_counter()
+        call_backend(cfg, build_request(cfg, vcfg, str(text), 1.0, "wav", None))
+        sys.stderr.write("[预热] 完成，耗时 %.1f 秒\n" % (time.perf_counter() - start))
+    except RuntimeError as e:
+        sys.stderr.write("[预热] 未完成，首次请求会重试：%s\n" % e)
 
 
 def main():
@@ -593,6 +825,7 @@ def main():
     print(f"  TTS Voice       {cfg.get('default_voice') or next(iter(cfg['voices']))}")
     print("")
     print("按 Ctrl+C 停止。")
+    threading.Thread(target=warmup_backend, args=(cfg,), daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

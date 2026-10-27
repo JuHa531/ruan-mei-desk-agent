@@ -31,6 +31,12 @@ app/assets/*.mp4
 *.gguf
 
 # Generated/test output
+/work/
+/outputs/
+.env
+.env.*
+!.env.example
+*.whl
 out.wav
 *.tmp
 *.bak

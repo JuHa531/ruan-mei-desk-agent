@@ -23,6 +23,7 @@ import sys
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from local_security import LocalRequestHandler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -39,7 +40,7 @@ def post(url, payload, timeout, stream=False):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(LocalRequestHandler):
     cfg = {}
     server_version = "RuanMeiApp/1.0"
 
@@ -57,7 +58,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        body=json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if not isinstance(body,dict):raise ValueError('JSON object required')
+        return body
 
     # ---------- 静态页 ----------
     def do_GET(self):

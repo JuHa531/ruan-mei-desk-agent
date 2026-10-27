@@ -22,6 +22,11 @@ import shutil
 import subprocess
 import tempfile
 
+
+def run_hidden(args, **kwargs):
+    kwargs["creationflags"] = kwargs.get("creationflags", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.run(args, **kwargs)
+
 # ---------------------------------------------------------------- 公共小工具
 
 # 界面一个色系：青蓝偏绿
@@ -758,7 +763,7 @@ def build_xlsx(path, content):
 def _run_ffmpeg(args, timeout=1800):
     if not FFMPEG:
         return 1, "找不到 ffmpeg（看的路径：%s）" % "；".join(FFMPEG_CANDIDATES)
-    r = subprocess.run([FFMPEG, "-hide_banner", "-y"] + args,
+    r = run_hidden([FFMPEG, "-hide_banner", "-y"] + args,
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=timeout)
     tail = "\n".join((r.stderr or "").strip().split("\n")[-8:])
@@ -769,7 +774,7 @@ def _probe(path):
     """拿时长和分辨率，没 ffprobe 就返回 None 让调用方走保守分支。"""
     if not FFPROBE or not os.path.isfile(FFPROBE):
         return None
-    r = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "v:0",
+    r = run_hidden([FFPROBE, "-v", "error", "-select_streams", "v:0",
                         "-show_entries", "stream=width,height:format=duration",
                         "-of", "csv=p=0", path],
                        capture_output=True, text=True, encoding="utf-8",
@@ -792,7 +797,7 @@ def _probe(path):
 def _has_audio(path):
     if not FFPROBE or not os.path.isfile(FFPROBE):
         return True
-    r = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "a",
+    r = run_hidden([FFPROBE, "-v", "error", "-select_streams", "a",
                         "-show_entries", "stream=index", "-of", "csv=p=0", path],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=120)
@@ -838,7 +843,16 @@ def edit_video(action, inputs, output, start=None, end=None, width=None,
             output += ".m4a"
     else:
         output = ensure_ext(output, ".mp4")
+    if any(os.path.normcase(os.path.realpath(output)) == os.path.normcase(os.path.realpath(f)) for f in files):
+        return "[工具出错] 输出路径不能与输入相同，请换一个文件名。"
     ensure_parent(output)
+
+    for label, value in (("start", start), ("end", end), ("speed", speed)):
+        if value is not None and str(value).strip() and _seconds(value) is None:
+            return "[工具出错] %s 格式不正确，请使用秒数或时:分:秒。" % label
+    if action in ("trim", "to_gif") and end is not None and str(end).strip():
+        if _seconds(end) <= _seconds(start, 0):
+            return "[工具出错] 结束时间必须大于开始时间。"
 
     if action == "trim":
         st = _seconds(start, 0.0)
@@ -869,7 +883,7 @@ def edit_video(action, inputs, output, start=None, end=None, width=None,
         for i, f in enumerate(files):
             if not _has_audio(f):
                 d = (_probe(f) or {}).get("duration") or 1
-                cmd += ["-f", "lavfi", "-t", "%.3f" % max(d, 1),
+                cmd += ["-f", "lavfi", "-t", "%.3f" % max(d, 0.01),
                         "-i", "anullsrc=r=44100:cl=stereo"]
                 filters.append("[v%d][%d:a]" % (i, idx))
                 idx += 1
@@ -878,7 +892,7 @@ def edit_video(action, inputs, output, start=None, end=None, width=None,
         graph = ""
         for i in range(len(files)):
             graph += "[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease," \
-                     "pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v%d];" % (
+                     "pad=%d:%d:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,setpts=PTS-STARTPTS[v%d];" % (
                          i, w, h, w, h, i)
         graph += "".join(filters) + "concat=n=%d:v=1:a=1[v][a]" % len(files)
         args = cmd + ["-filter_complex", graph, "-map", "[v]", "-map", "[a]",
@@ -913,8 +927,8 @@ def edit_video(action, inputs, output, start=None, end=None, width=None,
         return _ok(rc, log, output, "动图转好了（%d 宽 / %s fps）" % (w, fps or 12))
 
     if action == "speed":
-        sp = _seconds(speed, 1.0) or 1.0
-        if sp <= 0 or sp == 1.0:
+        sp = _seconds(speed, 1.0)
+        if sp <= 0 or sp == 1.0 or not 0.05 <= sp <= 20:
             return "[工具出错] speed 要填一个不等于 1 的倍速，比如 1.5 或 0.8。"
         # atempo 只能 0.5~2.0，超出就串起来
         rest = sp
@@ -926,9 +940,12 @@ def edit_video(action, inputs, output, start=None, end=None, width=None,
             chain.append("atempo=0.5")
             rest /= 0.5
         chain.append("atempo=%.4f" % rest)
-        graph = "[0:v]setpts=PTS/%.4f[v];[0:a]%s[a]" % (sp, ",".join(chain))
+        has_audio = _has_audio(files[0])
+        graph = "[0:v]setpts=(PTS-STARTPTS)/%.4f[v]" % sp
+        if has_audio:
+            graph += ";[0:a]%s[a]" % ",".join(chain)
         rc, log = _run_ffmpeg(["-i", files[0], "-filter_complex", graph,
-                               "-map", "[v]", "-map", "[a]", "-c:v", "libx264",
+                               "-map", "[v]"] + (["-map", "[a]"] if has_audio else []) + ["-c:v", "libx264",
                                "-preset", "veryfast", "-crf", "20", "-c:a", "aac", output])
         return _ok(rc, log, output, "变速做完了，%s 倍（音频跟着一起变）" % sp)
 

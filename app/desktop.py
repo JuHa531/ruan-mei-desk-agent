@@ -31,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+from local_security import trusted_desktop_origin
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -183,23 +184,23 @@ def start_background(args, log_name):
 def ensure_services(port, workdir, with_voice=True):
     """需要谁就把谁拉起来；已经在跑的不管。"""
     started = []
-    if with_voice and not (port_open(9880) and port_open(9881)):
+    if with_voice and not all(port_open(p) for p in (9880, 9881, 9882)):
         start_background(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                           "-WindowStyle", "Hidden", "-File",
                           os.path.join(ROOT, "启动语音.ps1")], "voice.log")
         started.append("语音链路")
     if not port_open(port):
         start_background([PYTHON, os.path.join(HERE, "agent_server.py"),
-                          "--no-browser", "--workdir", workdir], "agent_server.log")
+                          "--no-browser", "--port", str(port), "--workdir", workdir], "agent_server.log")
         started.append("应用服务")
     return started
 
 
-def install_permission_patch():
+def install_permission_patch(port=7788):
     """
     WebView2 默认不会替网页回答「能不能用麦克风」，不处理就等于拒绝，
     于是界面上的 🎙 语音输入会直接失败。这里在窗口初始化完成时挂上事件，
-    只放行麦克风和摄像头（参数不写死成 Allow-all，别的一律按默认走）。
+    仅为本应用的精确本机来源放行麦克风；其他来源与摄像头走默认权限流程。
     """
     try:
         from webview.platforms import edgechromium as ec
@@ -211,7 +212,7 @@ def install_permission_patch():
     def on_permission(sender, e):
         try:
             kind = str(e.PermissionKind)
-            if "Microphone" in kind or "Camera" in kind:
+            if "Microphone" in kind and trusted_desktop_origin(str(e.Uri),port):
                 e.State = CoreWebView2PermissionState.Allow
         except Exception:
             pass
@@ -419,7 +420,7 @@ def main():
         return 1
 
     import webview
-    install_permission_patch()
+    install_permission_patch(opts.port)
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     if opts.debug:

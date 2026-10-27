@@ -15,7 +15,7 @@ $GsRoot   = "G:\ai\GPT-SoVITS\GPT-SoVITS-main"
 $GsPython = "D:\ai\envs\tts\python.exe"
 $Adapter  = "C:\Users\qqqqq\Documents\Codex\2026-10-06\wo\outputs\local-ai-toolkit\voice\tts_server.py"
 $Config   = "C:\Users\qqqqq\Documents\Codex\2026-10-06\wo\outputs\local-ai-toolkit\voice\voices.json"
-$AdPython = "D:\ai\envs\llm\python.exe"
+$AdPython = "D:\ai\envs\meimei-app\Scripts\python.exe"
 $Asr      = "C:\Users\qqqqq\Documents\Codex\2026-10-06\wo\outputs\local-ai-toolkit\voice\asr_server.py"
 
 function Test-Port($port) {
@@ -28,7 +28,8 @@ if (Test-Port 9880) {
     Write-Host "  [跳过] GPT-SoVITS 已在运行（9880）" -ForegroundColor Yellow
 } else {
     Write-Host "  [启动] GPT-SoVITS（首次调用要预热约 5 分钟）"
-    Start-Process -FilePath $GsPython -ArgumentList "api_v2.py", "-a", "127.0.0.1", "-p", "9880" `
+    $GsApi = Join-Path (Split-Path $Adapter) "gptsovits_local_api.py"
+    Start-Process -FilePath $GsPython -ArgumentList $GsApi, "-a", "127.0.0.1", "-p", "9880" `
         -WorkingDirectory $GsRoot -WindowStyle Hidden
 }
 
@@ -75,8 +76,8 @@ if ($ok9880 -and -not $UseFinetune) {
 }
 
 if ($ok9880 -and $UseFinetune) {
-    $gpt = "GPT_weights_v2/ruanmei-e10.ckpt"
-    $sov = "SoVITS_weights_v2/ruanmei_e10_s870.pth"
+    $gpt = "GPT_weights_v2/ruanmei_refine_20261027-e10.ckpt"
+    $sov = "GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth"
     foreach ($pair in @(@('GPT', $gpt), @('SoVITS', $sov))) {
         $enc = [uri]::EscapeDataString($pair[1])
         $done = $false

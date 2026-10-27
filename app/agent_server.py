@@ -35,6 +35,7 @@ import argparse
 import collections
 import datetime
 import glob
+import io
 import json
 import os
 import re
@@ -46,7 +47,9 @@ import time
 import urllib.error
 import urllib.request
 import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from local_security import LocalRequestHandler, canonical_path, path_within, bounded_matches
 
 import office_tools          # 同目录：PPT / Word / Excel / 视频这几个产出型工具
 
@@ -458,6 +461,8 @@ def parse_music_request(text):
     t = str(text or "").strip()
     if not t:
         return None
+    if parse_music_command(t):
+        return None
     # 别把「播放视频 / 打开 PPT」这类请求误当成点歌。
     if (re.search(r"视频|电影|电视剧|动画|文件|图片|照片|PPT|幻灯片|录音|直播|节目|播客", t)
             and not re.search(r"歌|曲|音乐|原声|专辑", t)):
@@ -465,6 +470,14 @@ def parse_music_request(text):
     verb = r"(播放|放一首|放首|来一首|来首|换成|切到|放一下|听一首|听首|想听|给我放|帮我放)"
     if not re.search(verb, t):
         return None
+
+    # “最近爱听/最近常听”不是歌名。先从真实听歌记录里挑一首歌，
+    # 绝不能把整句需求原样打进 QQ 音乐搜索框。
+    if re.search(r"最近.{0,6}(爱听|喜欢听|常听|听的歌|听什么)", t):
+        pick = music_taste_pick(recent=True)
+        if pick:
+            return pick
+        return ("playlist", "我喜欢", "我喜欢")
 
     if re.search(r"歌单|播放列表|收藏|我喜欢|喜欢听|最近播放", t):
         if "我喜欢" in t or "喜欢听" in t:
@@ -622,7 +635,48 @@ def _clear_and_type(edit, text):
     edit.SendKeys(str(text), interval=0.10)
 
 
+_MUSIC_UI_LOCK = threading.RLock()
+
+
+def parse_music_command(text):
+    """常用短命令直接执行，避免小模型只承诺却不调用播放器。"""
+    q = re.sub(r"[\s，。！？!?、,.]", "", str(text or "")).lower()
+    q = re.sub(r"^(?:亲爱的|梅梅|阮梅)?(?:请|麻烦)?(?:帮我|给我)?", "", q)
+    q = re.sub(r"(?:一下|吧|好吗|谢谢)$", "", q)
+    aliases = {
+        "放歌": "play", "放首歌": "play", "放一首歌": "play", "放音乐": "play",
+        "放点音乐": "play", "播放音乐": "play", "播放歌曲": "play",
+        "来点音乐": "play", "听会歌": "play", "想听歌": "play",
+        "暂停": "pause", "暂停音乐": "pause", "暂停播放": "pause", "别放了": "pause",
+        "继续播放": "play", "继续放歌": "play", "继续音乐": "play",
+        "换一首": "next", "换首歌": "next", "下一首": "next", "切歌": "next",
+        "上一首": "prev", "音乐小声点": "vol_down", "小声点": "vol_down",
+        "音乐大声点": "vol_up", "大声点": "vol_up", "现在放什么": "status",
+    }
+    if q in aliases:
+        return aliases[q]
+    if (re.search(r"听歌(?:习惯|喜好|口味|记录)|最近(?:都)?听(?:了)?什么|我(?:平时)?爱听什么", q)
+            and not re.search(r"记住|以后|忘记|播放|放一首|想听", q)):
+        return "taste"
+    return None
+
+
 def qqmusic_play(query, kind="song", title=""):
+    try:
+        import uiautomation as auto
+        # HTTP handlers run in worker threads, where COM is not initialized.
+        with _MUSIC_UI_LOCK, auto.UIAutomationInitializerInThread():
+            result = _qqmusic_play_impl(query, kind, title)
+            d = music_control("status", "QQMusic")
+            if d.get("STATUS") == "Playing":
+                note_playing(d.get("TITLE"), d.get("ARTIST"), d.get("ALBUM"))
+            return result
+    except Exception as e:
+        print("[music] %s: %s" % (type(e).__name__, e), file=sys.stderr)
+        return "照这句说：这次没能在 QQ音乐 里完成点播：%s" % str(e)[:120]
+
+
+def _qqmusic_play_impl(query, kind="song", title=""):
     """
     在 QQ音乐 里按歌名/歌单点播。
 
@@ -660,6 +714,7 @@ def qqmusic_play(query, kind="song", title=""):
             return "照这句说：" + MUSIC_LIMITS_TEXT
         hwnd = win.NativeWindowHandle
         try:
+            ctypes.windll.user32.ShowWindow(hwnd, 9)
             win.SetActive()
         except Exception:
             pass
@@ -675,7 +730,7 @@ def qqmusic_play(query, kind="song", title=""):
                 if not name or q not in name:
                     continue
                 try:
-                    if c.BoundingRectangle.left >= 650:
+                    if c.BoundingRectangle.left >= win.BoundingRectangle.left + 320:
                         continue
                 except Exception:
                     continue
@@ -753,7 +808,7 @@ def qqmusic_play(query, kind="song", title=""):
             now_title == primary or primary in now_title or now_title in primary
             or _music_match_score(now_title, tokens, primary) >= 50))
         if (kind != "playlist" and d.get("STATUS") == "Playing"
-                and (matched or now_title != before_title)):
+                and matched):
             return ("照这句说：已经在 QQ音乐 里放上《%s》了%s。"
                     % (now_title or primary, (" — " + artist) if artist else ""))
 
@@ -819,7 +874,7 @@ def qqmusic_play(query, kind="song", title=""):
         matched = bool(now_title and (now_title == target_name
                                      or target_name in now_title
                                      or now_title in target_name))
-        if d.get("STATUS") != "Playing" or not (matched or now_title != before_title):
+        if d.get("STATUS") != "Playing" or not matched:
             print("[music] 点了但没放起来：%s -> %s" % (target_name, now_title),
                   file=sys.stderr)
             return "照这句说：" + MUSIC_LIMITS_TEXT
@@ -859,11 +914,21 @@ def _load_listen():
 
 def _save_listen(d):
     os.makedirs(os.path.dirname(LISTEN_FILE), exist_ok=True)
-    with open(LISTEN_FILE, "w", encoding="utf-8") as f:
+    tmp = LISTEN_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, LISTEN_FILE)
+
+
+_LISTEN_LOCK = threading.Lock()
 
 
 def note_playing(title, artist="", album=""):
+    with _LISTEN_LOCK:
+        return _note_playing(title, artist, album)
+
+
+def _note_playing(title, artist="", album=""):
     """
     记一笔"现在在放这首"。只有曲子**换了**才算一次新的播放 ——
     不然暂停继续、拖进度都会重复计数。
@@ -874,6 +939,12 @@ def note_playing(title, artist="", album=""):
     key = (title + "|" + (artist or "")).lower()
     d = _load_listen()
     if d.get("last_key") == key:
+        for track in d["tracks"]:
+            if (str(track.get("title", "")) + "|" + str(track.get("artist", ""))).lower() == key:
+                if track.get("source") != "QQMusic":
+                    track["source"] = "QQMusic"
+                    _save_listen(d)
+                break
         return False
     d["last_key"] = key
     now = datetime.datetime.now()
@@ -885,10 +956,11 @@ def note_playing(title, artist="", album=""):
         if (str(t.get("title", "")) + "|" + str(t.get("artist", ""))).lower() == key:
             t["plays"] = int(t.get("plays", 1)) + 1
             t["last"] = stamp
+            t["source"] = "QQMusic"
             break
     else:
         d["tracks"].append({"title": title, "artist": artist or "", "album": album or "",
-                            "plays": 1, "first": stamp, "last": stamp})
+                            "plays": 1, "first": stamp, "last": stamp, "source": "QQMusic"})
     _save_listen(d)
     return True
 
@@ -939,18 +1011,34 @@ def music_taste_brief(max_artists=3):
             % ("、".join(a for a, _ in top), len(tracks)))
 
 
-def music_log_loop(every=75):
+def music_taste_pick(recent=True):
+    """从听歌记录里挑一首真实歌曲，作为“最近爱听/常听”对应的搜索词。"""
+    d = _load_listen()
+    tracks = [t for t in d.get("tracks") or []
+              if t.get("title") and t.get("artist")]
+    if not tracks:
+        return None
+    key = ((lambda t: (str(t.get("last") or ""), int(t.get("plays", 1))))
+           if recent else
+           (lambda t: (int(t.get("plays", 1)), str(t.get("last") or ""))))
+    track = max(tracks, key=key)
+    title = str(track["title"]).strip()
+    artist = str(track["artist"]).strip()
+    return ("song", "%s %s" % (artist, title), title)
+
+
+def music_log_loop(every=15):
     """每隔一会儿看一眼在放什么，顺手记进听歌记录。"""
-    time.sleep(20)                       # 刚启动时先别抢资源
+    time.sleep(5)
     while True:
         try:
             d = music_control("status", "QQMusic")
             if d.get("COUNT", "0") != "0" and d.get("STATUS") == "Playing":
                 if note_playing(d.get("TITLE"), d.get("ARTIST"), d.get("ALBUM")):
                     print("[听歌] 记下：%s - %s" % (d.get("TITLE"), d.get("ARTIST")))
-        except Exception:
-            pass                          # 这个后台记录不许出错影响别的
-        time.sleep(max(30, int(every)))
+        except Exception as e:
+            print("[听歌] 记录失败：%s" % e, file=sys.stderr)
+        time.sleep(max(10, int(every)))
 
 
 # ---------------------------------------------------------------------------
@@ -1249,6 +1337,28 @@ def _music_line(d, after=False):
     return "。"
 
 
+def _start_music_without_session(action):
+    """QQ Music creates its SMTC session only after its first playback."""
+    import uiautomation as auto
+    ok, why = _ensure_qqmusic()
+    if not ok:
+        return why
+    with _MUSIC_UI_LOCK, auto.UIAutomationInitializerInThread():
+        win = _uia_window(auto)
+        if not win:
+            return "没有找到 QQ音乐 主窗口"
+        controls = list(_uia_walk(win))
+        wanted = {"play": ("播放", "播放全部"), "toggle": ("播放", "暂停"),
+                  "next": ("下一曲",), "prev": ("上一曲",)}.get(action, ())
+        for name in wanted:
+            candidates = [c for c in controls if c.ControlTypeName == "ButtonControl" and c.Name == name]
+            if candidates:
+                candidates[-1].GetInvokePattern().Invoke()
+                time.sleep(1.5)
+                return ""
+    return "播放器没有可用的播放按钮，请先登录并选择歌曲"
+
+
 def music(action, app="QQMusic", steps=1, query="", kind="song", title=""):
     """
     放 / 停 / 切歌 / 看现在放什么 —— 走 Windows 的媒体会话（SMTC）。
@@ -1314,14 +1424,22 @@ def music(action, app="QQMusic", steps=1, query="", kind="song", title=""):
         pass
     # 没有会话但用户就是想听歌 → 先把 QQ音乐 拉起来再试一次
     if d.get("COUNT", "0") == "0" and act in ("play", "toggle", "next", "prev"):
-        exe = find_music_exe()
-        if exe:
-            subprocess.Popen([exe], cwd=os.path.dirname(exe), creationflags=CREATE_NO_WINDOW)
-            time.sleep(12)
-            d = music_control(act, app)
+        try:
+            why = _start_music_without_session(act)
+            d = music_control("status", app)
+        except Exception as e:
+            why = str(e)[:160]
+        if d.get("COUNT", "0") == "0":
+            return "照这句说：QQ音乐 还没开始播放，%s。" % (why or "请检查是否需要登录或 VIP")
     if d.get("COUNT", "0") == "0":
         return ("现在没有任何东西在放（Windows 的媒体会话是空的）。"
                 "要我打开 QQ音乐 开始放吗？说一句「放首歌」就行。")
+    if d.get("RESULT", "").lower() == "false":
+        return "照这句说：QQ音乐 没有接受这次操作%s" % _music_line(d, after=True)
+    if act in ("play", "toggle", "next", "prev"):
+        current = music_control("status", app)
+        if current.get("STATUS") == "Playing":
+            note_playing(current.get("TITLE"), current.get("ARTIST"), current.get("ALBUM"))
 
     verb = {"play": "开始放了", "pause": "暂停了", "toggle": "切换了一下",
             "next": "切到下一首了", "prev": "回上一首了", "status": "现在在放"}.get(act, "好了")
@@ -1787,7 +1905,8 @@ TOOLS = [
             "action": {"type": "string", "description": "devices/screenshot/pull/push/apps/launch/shell"},
             "arg": {"type": "string", "description": "动作的参数：包名、手机端路径、命令等"},
             "save_as": {"type": "string", "description": "截图或拉文件时存到工作目录的文件名"},
-            "target": {"type": "string", "description": "push 时的手机目标目录，默认 /sdcard/Download/"}},
+            "target": {"type": "string", "description": "push 时的手机目标目录，默认 /sdcard/Download/"},
+            "serial": {"type": "string", "description": "设备序列号，多设备时必须指定；devices 可查看"}},
             "required": ["action"]}}},
     {"type": "function", "function": {
         "name": "search_files",
@@ -1959,6 +2078,11 @@ TOOLS = [
             "required": ["action"]}}},
 ]
 
+TOOLS.append({"type": "function", "function": {
+    "name": "recall",
+    "description": "查看已记录的长期习惯。用户问记住了什么、平常的作息或其他偏好时用它；不会修改记录。",
+    "parameters": {"type": "object", "properties": {
+        "query": {"type": "string", "description": "要查看的习惯主题，留空查看全部摘要"}}, "required": []}}})
 TOOL_BY_NAME = {t["function"]["name"]: t for t in TOOLS}
 TOOL_GROUPS = {
     "file": ("list_dir", "read_file", "write_file", "search_files"),
@@ -1971,7 +2095,7 @@ TOOL_GROUPS = {
     "pptx": ("make_pptx",),
     "dayplan": ("make_dayplan",),
     "video": ("edit_video",),
-    "memory": ("remember", "forget"),
+    "memory": ("remember", "forget", "recall"),
     "reminder": ("remind",),
     "music": ("music",),
 }
@@ -1983,22 +2107,22 @@ TOOL_TRIGGERS = {
                "命令", "诊断", "检查"),
     "app": ("打开", "启动", "切换", "关闭", "窗口", "应用", "程序"),
     "android": ("手机", "平板", "安卓", "android", "adb"),
-    "image": ("图片", "照片", "看图", "图像", "识别", "ocr", "扫描件"),
+    "image": ("图片", "照片", "看图", "图像", "识别", "ocr", "扫描件", "这张", "图中", "图里", "图上"),
     "docx": ("word", "docx", "文档", "报告", "方案", "合同"),
     "xlsx": ("excel", "xlsx", "表格", "台账", "预算", "清单"),
     "pptx": ("ppt", "幻灯片", "演示", "汇报"),
-    "dayplan": ("日程", "作息", "时间表", "规划表"),
+    "dayplan": ("日程", "作息", "时间表", "规划表", "安排一下", "规划一下", "计划表"),
     "video": ("视频", "剪辑", "片头", "片尾", "动图", "分辨率", "抽音频",
-              "拼接", "变速", "静音"),
-    "memory": ("记住", "忘掉", "忘记", "习惯", "以后都", "长期", "我一般"),
+              "拼接", "变速", "静音", "剪短", "剪掉", "慢放", "加速"),
+    "memory": ("记住", "忘掉", "忘记", "习惯", "以后都", "长期", "我一般", "记了什么", "偏好"),
     "reminder": ("提醒", "每天", "工作日", "每周", "叫我"),
     "music": ("音乐", "歌单", "歌曲", "听歌", "点歌", "切歌",
-              "下一首", "上一首", "音量", "qq音乐"),
+              "下一首", "上一首", "音量", "qq音乐", "换一首", "换首歌"),
 }
 GENERAL_TOOLS = ("list_dir", "read_file", "write_file", "run_cmd", "app")
 
 
-def select_tools(user_msg):
+def select_tools(user_msg, history=None):
     """按本轮意图只发送相关工具，减少每次请求的固定 schema token。"""
     q = str(user_msg or "").lower()
     if not q:
@@ -2007,6 +2131,15 @@ def select_tools(user_msg):
     for group, words in TOOL_TRIGGERS.items():
         if any(w in q for w in words):
             groups.add(group)
+    if re.search(r"刚才|接着|继续|那段|这个|它|换一首", q):
+        for msg in reversed((history or [])[-6:]):
+            if msg.get("role") != "user" or msg.get("content") == user_msg:
+                continue
+            prev = str(msg.get("content") or "").lower()
+            for group, words in TOOL_TRIGGERS.items():
+                if any(w in prev for w in words):
+                    groups.add(group)
+            break
     if (("播放" in q or "暂停" in q)
             and not any(w in q for w in ("视频", "电影", "电视", "录音", "播客"))):
         groups.add("music")
@@ -2014,8 +2147,12 @@ def select_tools(user_msg):
         groups.add("file")
     if groups:
         names = []
-        for group in groups:
+        for group in TOOL_GROUPS:
+            if group not in groups:
+                continue
             names.extend(TOOL_GROUPS[group])
+        if groups & {"image", "video"}:
+            names.extend(TOOL_GROUPS["file"])
         unique = list(dict.fromkeys(names))
         return [TOOL_BY_NAME[n] for n in unique if n in TOOL_BY_NAME]
     if re.search(r"帮我|处理|操作|看一下|看看|用过|完成|执行|生成|创建|搜索|查询", q):
@@ -2023,19 +2160,163 @@ def select_tools(user_msg):
     return []
 
 
+CASUAL_GREETINGS = (
+    "早安", "早上好", "上午好", "中午好", "下午好", "晚上好", "晚安",
+)
+CASUAL_CHAT_HINTS = CASUAL_GREETINGS + (
+    "天气", "点心", "早餐", "午饭", "晚饭", "吃什么", "今天过得", "今天想做什么",
+    "想做什么", "在吗", "忙吗", "陪我", "聊天", "无聊", "好累", "有点累",
+    "开心", "难过",
+)
+REALTIME_TOPIC_WORDS = (
+    "天气", "气温", "温度", "下雨", "下雪", "空气质量", "pm2.5", "外面冷", "外面热",
+)
+REALTIME_CLAIM_PATTERNS = (
+    r"(?:今天|现在|外面|当前).{0,10}(?:天气|气温|温度|晴朗?|阴天?|下雨|下雪|空气质量)",
+    r"(?:天气|气温|空气质量).{0,8}(?:不错|很好|真好|晴朗|阴沉|下雨|降温|升温|\d+\s*(?:度|℃))",
+    r"(?:pm2\.5|空气)(?:指数|质量).{0,8}\d+",
+)
+
+
+def is_casual_chat_turn(user_msg):
+    """日常寒暄和生活闲聊不调用工具，需要单独的质量约束。"""
+    q = re.sub(r"\s+", "", str(user_msg or ""))
+    if not q:
+        return False
+    return any(word in q for word in CASUAL_CHAT_HINTS)
+
+
+def asks_for_realtime_fact(user_msg):
+    q = str(user_msg or "").lower()
+    return any(word in q for word in REALTIME_TOPIC_WORDS)
+
+
+def _visible_reply_len(text):
+    """去掉称呼、标点和空白后估算中文回复长度，避免把格式误算成内容。"""
+    s = str(text or "").replace(WAKE_WORD, "")
+    return len(re.sub(r"[\W_]+", "", s, flags=re.UNICODE))
+
+
+def has_ungrounded_realtime_claim(text):
+    """当前没有天气工具；带结论的天气/温度表述一律视为无依据。"""
+    s = str(text or "")
+    return any(re.search(pattern, s) for pattern in REALTIME_CLAIM_PATTERNS)
+
+
+def casual_reply_issue(user_msg, reply):
+    """返回日常回复的问题标签；空字符串表示无需重写。"""
+    if not is_casual_chat_turn(user_msg):
+        return ""
+    issues = []
+    if _visible_reply_len(reply) < 18:
+        issues.append("回复过短")
+    if has_ungrounded_realtime_claim(reply):
+        issues.append("无工具依据的实时事实")
+    return "；".join(issues)
+
+
+def casual_reply_guidance(messages, user_msg):
+    """
+    检测最近几轮是否形成了“只回一句”的短回复习惯，并把本轮要求写进 system。
+    习惯检测只影响闲聊，不影响文件、系统等任务回复。
+    """
+    if not is_casual_chat_turn(user_msg):
+        return ""
+    recent = [
+        str(m.get("content") or "") for m in (messages or [])[-8:]
+        if isinstance(m, dict) and m.get("role") == "assistant"
+    ][-4:]
+    short_count = sum(1 for item in recent if _visible_reply_len(item) < 18)
+    habit_note = ""
+    if short_count >= 2:
+        habit_note = ("检测到最近连续出现简短敷衍的日常回复。本轮要主动改掉这个习惯，"
+                      "不要只答一句。")
+    return (
+        "【日常回复习惯】这是闲谈或寒暄，不是任务。仍保持阮·梅的克制，但回复用 3 到 5 个"
+        "自然短句：先正常回应，再给一个具体的当前场景细节，最后邀请主人尝点心、喝茶、"
+        "坐下聊两句，或用一句自然问话接住话题。可结合下面给出的生活习惯和听歌偏好，"
+        "但不要背清单、不要写成客服套话。点心、茶等可以写成陪伴场景中的细节。"
+        "没有工具结果时，禁止声称已经查到天气、气温、空气质量或外面的实时情况；"
+        "涉及这些内容就直说没有接入相应程序。" + habit_note
+    )
+
+
+CASUAL_REWRITE_NUDGE = (
+    "（系统检测到上一版不符合当前闲聊要求：要么太短，要么把没有工具依据的天气等"
+    "实时情况说成了事实。不要解释检测过程，直接重写一遍。保持「亲爱的」开头，"
+    "用 3 到 5 个自然短句，加入具体场景细节和自然邀请；可结合已知习惯。"
+    "没有工具依据时不得报天气、气温或空气质量。）"
+)
+
+
+def _casual_habit_ending(now=None):
+    """用已经注入的生活习惯选一句不冒犯、不过度推断的收尾。"""
+    now = now or datetime.datetime.now()
+    hour = now.hour
+    habits = load_habits()
+    if 12 <= hour < 17 and "课" in habits:
+        return "你下午通常还有课，若时间紧，就晚些再来尝。"
+    if 17 <= hour < 23 and "健身" in habits:
+        return "你晚餐后通常要去健身；若今晚不去，我们就慢慢分着吃。"
+    if hour >= 1 and hour < 6 and "凌晨" in habits:
+        return "你又忙到这个点了，吃完记得早点休息。"
+    return "你若现在不忙，就过来坐一会儿吧。"
+
+
+def fallback_casual_reply(user_msg, now=None):
+    """模型连续重写仍不合格时的角色化兜底，不声称任何实时外部事实。"""
+    q = str(user_msg or "")
+    if asks_for_realtime_fact(q):
+        return (
+            "亲爱的，我没有接入天气程序，不能替你确认外面的天气。"
+            "要出门的话，先看一眼天气应用吧。"
+            "回来得早，我留一块点心给你。"
+        )
+    if "点心" in q or "吃什么" in q:
+        return (
+            "亲爱的，我想试做一小盘桂花酥，再配一壶清茶。"
+            "要是你今晚不去健身，我们就慢慢分着吃。"
+            "你若赶着出门，我也可以替你留一小盒点心。"
+        )
+    if any(word in q for word in ("好累", "有点累", "难过")):
+        return (
+            "亲爱的，那就先停一会儿，不必急着把每件事都做完。"
+            "我把茶温着，点心也放在一旁。"
+            "你若愿意，就和我说说今天哪里最费神。"
+        )
+    if any(word in q for word in ("在吗", "忙吗")):
+        return (
+            "亲爱的，在的。"
+            "我刚把一小盘点心端出来，茶也还温着。"
+            "你说吧，我在听。"
+        )
+    greeting = next((item for item in CASUAL_GREETINGS if item in q), "")
+    if not greeting:
+        hour = (now or datetime.datetime.now()).hour
+        greeting = ("早上好" if hour < 11 else "下午好" if hour < 18 else "晚上好")
+    return (
+        "亲爱的，%s。"
+        "我刚把一小盘点心端出来，茶也还温着。"
+        "%s" % (greeting, _casual_habit_ending(now))
+    )
+
+
 def safe_path(workdir, rel, extra_read=()):
     """
     把路径解析到工作目录内，越界就拒绝（防止模型读写系统文件）。
     读操作额外允许访问 extra_read 里列的目录（比如放图片、素材的盘）。
     """
-    p = os.path.abspath(os.path.join(workdir, rel or "."))
-    wd = os.path.abspath(workdir)
-    if p == wd or p.startswith(wd + os.sep):
+    p = canonical_path(os.path.join(workdir, rel or "."))
+    wd = canonical_path(workdir)
+    # Resolve symlinks/junctions before checking containment, including new files.
+    if os.name=='nt' and ':' in os.path.splitdrive(p)[1]:
+        raise ValueError('不允许使用NTFS备用数据流路径')
+    if path_within(p,wd):
         return p
     if os.path.isabs(rel or ""):
         for d in extra_read or ():
-            d = os.path.abspath(d)
-            if d and (p == d or p.startswith(d + os.sep)):
+            d = canonical_path(d)
+            if d and path_within(p,d):
                 return p
     # 报错要把「到底能用哪些目录」说清楚，否则模型只会放弃，不会自己改路径
     allowed = [wd] + [os.path.abspath(d) for d in (extra_read or ())
@@ -2115,11 +2396,19 @@ def vlm_describe(path, question, model, ollama_base, timeout=600):
     """让视觉模型描述画面内容。"""
     import base64
 
-    with open(path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("ascii")
+    from PIL import Image, ImageOps
+    # Bound encoder work on large screenshots; normalize formats Ollama cannot read.
+    with Image.open(path) as image:
+        image = ImageOps.exif_transpose(image).convert("RGB")
+        image.thumbnail((1600, 1600))
+        buf = io.BytesIO()
+        image.save(buf, format="JPEG", quality=92)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     prompt = question.strip() if question else "用中文简要描述这张图片的内容。"
     payload = {"model": model, "prompt": prompt, "images": [b64],
-               "stream": False, "options": {"temperature": 0.2}}
+               "stream": False, "keep_alive": "2m",
+               "options": {"temperature": 0.2, "num_predict": 512,
+                           **({"num_gpu": 0} if "cpu" in model.lower() else {})}}
     req = urllib.request.Request(ollama_base.rstrip("/") + "/api/generate",
                                  data=json.dumps(payload).encode("utf-8"),
                                  headers={"Content-Type": "application/json"},
@@ -2157,14 +2446,27 @@ HIGH_RISK_CMD = (r"\bdel\b", r"\brd\b", r"\brmdir\b", r"remove-item",
                  r"\bformat\b")
 
 
+def is_denied_action(user_msg):
+    return bool(re.search(r'不(?:要|许|能|可以|同意|允许|安装|装|关闭|退出|执行|删除|确认|确定|需要|必|用)|无需|不是|没有(?:确认|同意|允许)|别(?:再)?|暂不|取消|未确认',str(user_msg or '')))
+
+
 def is_confirmed(user_msg):
     t = str(user_msg or "").lower()
-    return any(w in t for w in CONFIRM_WORDS)
+    if is_denied_action(t):
+        return False
+    t=t.strip().strip('。.!！')
+    if t in ('确认','确定','同意','允许','按你说的'):
+        return True
+    return bool(re.search(r'(?:^|[，。！!？?\s])(?:我)?(?:确认执行|确认安装|确认关闭|同意执行|允许执行|执行吧|可以执行|就这么做|按你说的做|删吧|关吧|装吧|安装吧)(?:$|[，。！!？?\s：:])',t))
 
 
 def is_high_risk_command(cmd):
     low = " ".join(str(cmd or "").lower().split())
-    return any(re.search(p, low) for p in HIGH_RISK_CMD)
+    # An arbitrary shell can hide writes/deletions in scripts or child commands;
+    # a keyword denylist cannot make it safe. Only fixed inspection commands
+    # bypass confirmation; all other shell text needs the existing approval flow.
+    return low not in {'pwd','cd','dir','ls','get-location','get-date','hostname',
+                       'whoami','ver','systeminfo','ipconfig','nvidia-smi','nvidia-smi -l'}
 
 
 # 出现这些词，说明用户是在描述现象或让你去查，而不是单纯聊天。
@@ -2256,6 +2558,7 @@ ADB = r"C:\platform-tools\adb.exe" if os.path.exists(r"C:\platform-tools\adb.exe
 # 所以这里显式抬高。代价是 KV cache 变大（4B 模型 8K 上下文大约多吃 1GB 显存），
 # 显存紧张就把 RM_NUM_CTX 环境变量调小，或者让它回到 4096 并接受工具输出被砍得更狠。
 LLM_NUM_CTX = int(os.environ.get("RM_NUM_CTX", "8192"))
+CHAT_NUM_CTX = min(LLM_NUM_CTX, max(2048, int(os.environ.get("RM_CHAT_NUM_CTX", "4096"))))
 
 # 手机上不能被模型随便执行的东西
 ADB_DANGEROUS = ("rm -rf /sdcard", "rm -rf /storage", "pm clear", "factory", "wipe",
@@ -2263,8 +2566,8 @@ ADB_DANGEROUS = ("rm -rf /sdcard", "rm -rf /storage", "pm clear", "factory", "wi
                  "su -c", "pm uninstall --user 0 android")
 
 
-def adb_run(args, timeout=120, binary=False):
-    r = run_hidden([ADB] + args, capture_output=True, timeout=timeout)
+def adb_run(args, timeout=120, binary=False, serial=""):
+    r = run_hidden([ADB] + (["-s", serial] if serial else []) + args, capture_output=True, timeout=timeout)
     if binary:
         return r.returncode, r.stdout, r.stderr.decode("utf-8", "replace")
     return (r.returncode, (r.stdout or b"").decode("utf-8", "replace")
@@ -2273,13 +2576,33 @@ def adb_run(args, timeout=120, binary=False):
 
 def adb_devices():
     rc, out, _ = adb_run(["devices", "-l"])
-    body = "\n".join(l for l in out.splitlines() if l.strip() and "List of devices" not in l)
+    if rc:
+        return "[手机] ADB 查询失败：" + out[:300]
+    body = "\n".join(l for l in out.splitlines() if re.match(r"^\S+\s+(?:device|offline|unauthorized)\b", l))
     if not body.strip():
         return ("[手机] 现在没有连上设备。\n"
                 "要连上：① 手机「设置 → 关于手机 → 连点 7 次版本号」打开开发者选项；"
                 "② 开发者选项里打开「USB 调试」；③ 用数据线插到这台电脑，手机上点「允许调试」。\n"
                 "（华为平板同理；插上后再调一次这个工具就能看到设备。）")
-    return "[手机] 已连接：\n" + body
+    return "[手机] 设备状态（device=可用，unauthorized=请在设备上允许调试，offline=离线）：\n" + body
+
+
+def select_android_serial(serial=""):
+    rc, out, _ = adb_run(["devices"])
+    if rc:
+        raise ValueError("ADB 查询失败：" + out[:180])
+    rows = [l.split()[:2] for l in out.splitlines() if re.match(r"^\S+\s+(?:device|offline|unauthorized)\b", l)]
+    states = dict(rows)
+    if serial:
+        if states.get(serial) != "device":
+            raise ValueError("目标设备未就绪（%s），请检查 USB 调试授权或连接" % states.get(serial, "未连接"))
+        return serial
+    ready = [s for s, state in rows if state == "device"]
+    if len(ready) > 1:
+        raise ValueError("连接了多台设备，请指定 serial：" + "、".join(ready))
+    if not ready:
+        raise ValueError("没有可用设备，请连接手机/平板并在设备上允许 USB 调试")
+    return ready[0]
 
 
 def android_tool(action, args, workdir):
@@ -2289,11 +2612,15 @@ def android_tool(action, args, workdir):
 
     if action == "devices":
         return adb_devices()
+    serial = select_android_serial(str(args.get("serial") or "").strip())
+
+    def run_adb(command, **kwargs):
+        return adb_run(command, serial=serial, **kwargs)
 
     if action == "screenshot":
         name = save_as or "手机截图.png"
         p = safe_path(workdir, name)
-        rc, data, err = adb_run(["exec-out", "screencap", "-p"], timeout=180, binary=True)
+        rc, data, err = run_adb(["exec-out", "screencap", "-p"], timeout=180, binary=True)
         if rc != 0 or not data:
             return adb_devices() if rc != 0 else "[手机] 截屏失败：%s" % err[:200]
         with open(p, "wb") as f:
@@ -2302,7 +2629,7 @@ def android_tool(action, args, workdir):
                 % (name, len(data) / 1024))
 
     if action == "apps":
-        rc, out, _ = adb_run(["shell", "pm", "list", "packages", "-3"], timeout=180)
+        rc, out, _ = run_adb(["shell", "pm", "list", "packages", "-3"], timeout=180)
         pkgs = [l.replace("package:", "").strip() for l in out.splitlines() if l.startswith("package:")]
         if not pkgs:
             return "[手机] " + (out.strip()[:300] or "没读到应用列表（手机连上了吗？）")
@@ -2313,7 +2640,7 @@ def android_tool(action, args, workdir):
             return "[工具出错] launch 需要 arg=包名，比如 com.tencent.mm"
         if any(x in a for x in (";", "&&", "|", " ")):
             return "[工具出错] 包名不合法"
-        rc, out, _ = adb_run(["shell", "monkey", "-p", a, "-c",
+        rc, out, _ = run_adb(["shell", "monkey", "-p", a, "-c",
                               "android.intent.category.LAUNCHER", "1"], timeout=120)
         ok = "Events injected: 1" in out or rc == 0
         return ("[手机] 已尝试启动 %s%s" % (a, "" if ok else "（可能没装这个包）")) + "\n" + out[:300]
@@ -2323,7 +2650,7 @@ def android_tool(action, args, workdir):
             return "[工具出错] pull 需要 arg=手机上的文件路径，比如 /sdcard/DCIM/Camera/a.jpg"
         name = save_as or os.path.basename(a.rstrip("/")) or "手机文件"
         p = safe_path(workdir, name)
-        rc, out, _ = adb_run(["pull", a, p], timeout=600)
+        rc, out, _ = run_adb(["pull", a, p], timeout=600)
         if rc != 0:
             return "[手机] 拉取失败：%s" % out.strip()[:300]
         return "[手机] 已把 %s 拉到工作目录的 %s" % (a, name)
@@ -2335,7 +2662,7 @@ def android_tool(action, args, workdir):
         if not os.path.isfile(src):
             return "[工具出错] 工作目录里没有这个文件：%s" % a
         target = str(args.get("target") or "/sdcard/Download/").strip()
-        rc, out, _ = adb_run(["push", src, target], timeout=600)
+        rc, out, _ = run_adb(["push", src, target], timeout=600)
         if rc != 0:
             return "[手机] 推送失败：%s" % out.strip()[:300]
         return "[手机] 已把 %s 推到手机的 %s" % (a, target)
@@ -2347,7 +2674,7 @@ def android_tool(action, args, workdir):
         for bad in ADB_DANGEROUS:
             if bad in low:
                 return "[工具出错] 这条命令会破坏手机数据，已拒绝：%s" % a[:80]
-        rc, out, _ = adb_run(["shell", a], timeout=180)
+        rc, out, _ = run_adb(["shell", a], timeout=180)
         return "[手机] 退出码 %d\n%s" % (rc, clip(out, head=700, tail=300))
 
     return ("[工具出错] 不认识的 action：%s。可用：devices（看连了没）、screenshot（截屏）、"
@@ -2370,7 +2697,9 @@ def winget(action, query, user_msg):
         cmd = ["winget", "search", query, "--accept-source-agreements"]
         timeout = 180
     else:
-        approved = any(w in (user_msg or "") for w in APPROVE_WORDS)
+        approved = (is_confirmed(user_msg) or bool(re.search(r'帮我(?:安装|装)|安装(?:吧|一下)|装一个|可以装|直接装',user_msg or '')))
+        if is_denied_action(user_msg):
+            approved=False
         if not approved:
             return ("【需要用户确认】装软件要用户点头。你先把这件事说清楚（装什么、为什么、"
                     "以及装完能解决什么），然后问他一句是否可以。他回复「装吧」之后你再调一次，"
@@ -2442,7 +2771,17 @@ def trim_history(messages, budget_tokens):
     这不是"语义压缩"，只是防止长会话把 num_ctx 撑爆：早期内容如果真的重要，
     让用户重述一遍，比让模型在截断的上下文里硬猜更可靠。
     """
-    msgs = [m for m in (messages or []) if isinstance(m, dict)]
+    msgs = []
+    for source in messages or []:
+        if not isinstance(source, dict):
+            continue
+        # Attachment paths belong to our API. Ollama's `images` expects base64,
+        # so forwarding these paths would break the next ordinary chat turn.
+        message = {key: value for key, value in source.items() if key != "images"}
+        images = source.get("images")
+        if isinstance(images, list) and images:
+            message["content"] = str(message.get("content") or "") + "\n[附图路径：" + "、".join(str(p) for p in images[:3]) + "]"
+        msgs.append(message)
     if not msgs:
         return [], 0
     kept, used = [], 0
@@ -2532,6 +2871,11 @@ def exec_tool(name, args, workdir, extras_read=(), ollama_base="", user_msg=""):
         if name == "gpu_check":
             return gpu_check()
 
+        if name == "recall":
+            query = str(args.get("query") or "").strip()
+            content = habits_for_prompt(query, limit=4000) if query else load_habits()
+            return "[已记录的习惯]\n" + (clip(content, head=3200, tail=600) if content else "还没有记录习惯。")
+
         if name == "remember":
             return habits_add(str(args.get("text") or ""), str(args.get("section") or ""))
 
@@ -2540,9 +2884,18 @@ def exec_tool(name, args, workdir, extras_read=(), ollama_base="", user_msg=""):
 
         if name == "app":
             act = str(args.get("action") or "windows").lower()
+            if act in ('press','keys','按键'):
+                keys=str(args.get('keys') or '').lower().split()
+                safe={'up','down','left','right','home','end','pageup','pagedown','tab','esc'}
+                exact_request=(bool(keys) and bool(re.search(r'按|快捷键',str(user_msg or '')))
+                               and all(k in str(user_msg or '').lower() for k in keys))
+                if (not set(keys)<=safe and (is_denied_action(user_msg)
+                        or not (is_confirmed(user_msg) or exact_request))):
+                    return '[需要确认] 这些快捷键可能关闭窗口、粘贴或执行操作，请明确指定按键或回复「确认执行」。'
             if (act in ("close", "关闭")
-                    and not (is_confirmed(user_msg)
-                             or re.search(r"关|关闭|退出|结束", str(user_msg or "")))):
+                    and not (is_confirmed(user_msg) or (
+                        re.search(r'关闭|退出|结束|关掉',str(user_msg or ''))
+                        and not is_denied_action(user_msg)))):
                 return ("[需要确认] 要关哪个窗口，先让主人确认一下（可能丢未保存内容），"
                         "确认后再调。")
             return app_tool(str(args.get("action") or "windows"),
@@ -2568,6 +2921,10 @@ def exec_tool(name, args, workdir, extras_read=(), ollama_base="", user_msg=""):
             return reminder_list()
 
         if name == "android":
+            if (str(args.get('action') or '').lower()=='shell'
+                    and str(args.get('arg') or '').strip().lower() not in ('getprop','wm size','pm list packages','dumpsys battery')
+                    and not is_confirmed(user_msg)):
+                return '[需要确认] 手机shell命令可能改动设备，请明确回复「确认执行」后再运行。'
             return android_tool(str(args.get("action") or ""), args, workdir)
 
         if name == "install_app":
@@ -2624,8 +2981,8 @@ def exec_tool(name, args, workdir, extras_read=(), ollama_base="", user_msg=""):
                 # 只给了文件名时，帮它到工作目录和只读目录里找一下
                 hits = []
                 for base in [workdir] + [d for d in (extras_read or ()) if os.path.isdir(d)]:
-                    hits += glob.glob(os.path.join(base, "**", os.path.basename(files[0])),
-                                      recursive=True)
+                    hits += list(bounded_matches(base,os.path.basename(files[0])))
+                hits=[safe_path(workdir,p,extras_read) for p in hits]
                 if len(hits) == 1:
                     files = hits
                 elif hits:
@@ -2642,6 +2999,8 @@ def exec_tool(name, args, workdir, extras_read=(), ollama_base="", user_msg=""):
 
         if name == "search_files":
             pat = args["pattern"]
+            if os.path.isabs(pat) or os.path.splitdrive(pat)[0] or '..' in pat.replace('\\','/').split('/'):
+                raise ValueError('搜索通配符不能使用绝对路径或上级目录')
             hits = []
             where = args.get("path")
             if where:
@@ -2651,11 +3010,12 @@ def exec_tool(name, args, workdir, extras_read=(), ollama_base="", user_msg=""):
                 bases = [workdir] + [d for d in (extras_read or ()) if os.path.isdir(d)]
             truncated = False
             for base in bases:
-                for p in glob.glob(os.path.join(base, "**", pat), recursive=True):
+                for p in bounded_matches(base,pat):
                     try:
-                        hits.append(os.path.relpath(p, workdir))
+                        p=safe_path(workdir,p,extras_read)
                     except ValueError:
-                        hits.append(p)
+                        continue
+                    hits.append(os.path.relpath(p,workdir) if path_within(p,workdir) else p)
                     if len(hits) >= 100:
                         truncated = True
                         break
@@ -2689,7 +3049,7 @@ def ollama_chat(base, payload, timeout=900):
         raise RuntimeError("Ollama 返回 %d：%s" % (e.code, detail or "(没有说明)")) from None
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(LocalRequestHandler):
     cfg = {}
     appearance = {"bg_type": "none", "bg_file": "", "icon": ""}
     server_version = "RuanMeiAgent/2.0"
@@ -2711,10 +3071,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json_body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        data=json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if not isinstance(data,dict):
+            raise ValueError('请求体必须是JSON对象')
+        return data
 
     def do_GET(self):
         p = self.path.split("?")[0]
+        if p == "/api/image":
+            try:
+                query = urllib.parse.parse_qs(self.path.partition("?")[2])
+                rel = (query.get("path") or [""])[0]
+                if not rel.replace("\\", "/").startswith("attachments/"):
+                    raise ValueError("仅提供已上传的图片")
+                path = safe_path(self.cfg["workdir"], rel)
+                if not path.lower().endswith(".jpg"):
+                    raise ValueError("图片格式不支持")
+                with open(path, "rb") as f:
+                    self._send(200, f.read(), "image/jpeg")
+            except (OSError, ValueError) as e:
+                self._send(404, str(e), "text/plain; charset=utf-8")
+            return
         if p == "/api/taste":
             self._send(200, json.dumps(
                 {"text": music_taste(), "file": LISTEN_FILE}, ensure_ascii=False),
@@ -2764,17 +3141,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         if p == "/api/status":
             self._send(200, json.dumps({
+                "runtime_python": sys.executable,
                 "ollama": self._reachable(self.cfg["ollama"] + "/api/tags"),
                 "tts": self._reachable(self.cfg["tts"] + "/healthz"),
+                "asr": self._reachable(self.cfg["asr"] + "/healthz"),
             }, ensure_ascii=False), "application/json; charset=utf-8")
             return
         if p.startswith("/assets/"):
             # 浏览器会把中文和空格编码成 %XX，这里必须先解回来，否则
             # 素材名里带一个汉字就变成 404（视频背景黑屏就是这么来的）。
             rel = urllib.parse.unquote(p[len("/assets/"):])
-            fp = os.path.abspath(os.path.join(ASSETS_DIR, rel.replace("/", os.sep)))
-            assets_root = os.path.abspath(ASSETS_DIR)
-            if not fp.startswith(assets_root + os.sep):
+            fp = canonical_path(os.path.join(ASSETS_DIR, rel.replace("/", os.sep)))
+            if not path_within(fp,ASSETS_DIR):
                 self._send(404, "not found", "text/plain; charset=utf-8")
                 return
             if os.path.exists(fp) and os.path.isfile(fp):
@@ -2865,6 +3243,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p = self.path.split("?")[0]
+        if p == "/api/upload_image":
+            try:
+                from PIL import Image, ImageOps
+                n = int(self.headers.get("Content-Length") or 0)
+                if not 0 < n <= 15 * 1024 * 1024:
+                    raise ValueError("请选择 15MB 以内的图片")
+                data = self.rfile.read(n)
+                with Image.open(io.BytesIO(data)) as image:
+                    if image.width * image.height > 25000000:
+                        raise ValueError("图片像素过大，请先缩小到 2500 万像素以内")
+                    image = ImageOps.exif_transpose(image).convert("RGB")
+                    image.thumbnail((2000, 2000))
+                    rel = "attachments/" + uuid.uuid4().hex + ".jpg"
+                    path = safe_path(self.cfg["workdir"], rel)
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    image.save(path, format="JPEG", quality=94)
+                self._send(200, json.dumps({"path": rel}, ensure_ascii=False), "application/json; charset=utf-8")
+            except (OSError, ValueError, Image.DecompressionBombError) as e:
+                self._send(400, json.dumps({"error": str(e)}, ensure_ascii=False), "application/json; charset=utf-8")
+            return
 
         if p == "/api/appearance":
             try:
@@ -3082,20 +3480,52 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, json.dumps({"error": str(e)}), "application/json")
                 return
             raw_messages = req.get("messages") or []
+            if not isinstance(raw_messages,list) or len(raw_messages)>1000:
+                self._send(400,'{"error":"invalid messages"}','application/json');return
+            cleaned=[]
+            for message in raw_messages:
+                if (not isinstance(message,dict) or message.get('role') not in ('user','assistant')
+                        or not isinstance(message.get('content',''),str)):
+                    self._send(400,'{"error":"invalid message role or content"}','application/json');return
+                item={'role':message['role'],'content':message.get('content','')}
+                if message.get('images'):
+                    if not isinstance(message['images'],list) or not all(isinstance(p,str) for p in message['images']):
+                        self._send(400,'{"error":"invalid images"}','application/json');return
+                    item['images']=message['images'][:3]
+                cleaned.append(item)
+            raw_messages=cleaned
             workdir = self.cfg["workdir"]
             base = self.cfg["ollama"]
 
             last_user = ""
+            attached_images = []
             for m in reversed(raw_messages):
                 if isinstance(m, dict) and m.get("role") == "user":
                     last_user = m.get("content") or ""
+                    attached_images = m.get("images") or []
                     break
+            if not isinstance(attached_images, list):
+                attached_images = []
+            if not attached_images and re.search(r"图中|图里|图上|这张|刚才那张|上面那张", last_user):
+                for previous in reversed(raw_messages[:-1]):
+                    if isinstance(previous, dict) and previous.get("role") == "user" and isinstance(previous.get("images"), list) and previous["images"]:
+                        attached_images = previous["images"]
+                        break
             character_memory = ruanmei_lore_for_prompt(last_user)
-            turn_tools = select_tools(last_user)
+            turn_tools = select_tools(last_user, raw_messages)
+            turn_num_ctx = LLM_NUM_CTX if turn_tools else CHAT_NUM_CTX
 
             # 动态资料必须和完整人设合并成“一条” system。Ollama 遇到额外
             # system 消息时会覆盖 Modelfile 里的 SYSTEM，分开插会让人设消失。
             dynamic_parts = []
+            casual_guidance = casual_reply_guidance(raw_messages, last_user)
+            if casual_guidance:
+                dynamic_parts.append(casual_guidance)
+            if asks_for_realtime_fact(last_user):
+                dynamic_parts.append(
+                    "【能力边界】本轮没有天气、气温或空气质量工具。不能确认时直接说明"
+                    "「没有接入天气程序」，不要用常识、猜测或角色设定补出一个天气结论。"
+                )
             habits = habits_for_prompt(last_user)
             if habits:
                 taste = music_taste_brief()
@@ -3127,7 +3557,7 @@ class Handler(BaseHTTPRequestHandler):
             # 历史预算必须扣掉实际人设和本轮工具 schema，而不是拍一个固定值。
             tools_json = json.dumps(turn_tools, ensure_ascii=False, separators=(",", ":"))
             fixed_tokens = approx_tokens(system_text) + approx_tokens(tools_json)
-            history_budget = max(400, LLM_NUM_CTX - fixed_tokens - 1200)
+            history_budget = max(400, turn_num_ctx - fixed_tokens - 1200)
             messages, dropped = trim_history(raw_messages, history_budget)
             if dropped:
                 print("[上下文] 省略较早的 %d 条消息（预算约 %d token，工具 %d 个）"
@@ -3155,16 +3585,46 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 nudged = False
                 nudged_action = 0
+                nudged_casual = False
                 acted = False          # 这轮有没有真的动过手（写文件/装东西/出成品）
+                if attached_images:
+                    for image_path in attached_images[:3]:
+                        args = {"path": str(image_path), "question": last_user}
+                        emit({"type": "tool", "name": "see_image", "args": args})
+                        result = exec_tool("see_image", args, workdir,
+                                           self.cfg.get("extra_read") or (), base, last_user)
+                        emit({"type": "tool_result", "name": "see_image", "result": result[:6000]})
+                        marker = re.search(r"\[画面描述 · [^\n]+\]\n", result)
+                        answer = result[marker.end():] if marker else (
+                            "图中识别到的文字：\n" + result.split("[结果]\n", 1)[1]
+                            if "[结果]\n" in result else result)
+                        emit({"type": "text", "content": answer + "\n"})
+                    emit({"type": "done"})
+                    return
+                music_action = parse_music_command(last_user)
+                if music_action:
+                    emit({"type": "tool", "name": "music", "args": {"action": music_action}})
+                    result = music(music_action)
+                    emit({"type": "tool_result", "name": "music", "result": result})
+                    emit({"type": "text", "content": result.removeprefix("照这句说：").strip()})
+                    emit({"type": "done"})
+                    return
                 # 「播放我喜欢的歌单 / 放一首周杰伦的晴天」：服务端直接点播，不叫模型。
                 # 这样既快（0 token），也不会让 4B 模型编一句"好的，我将为您播放…"。
                 spec = parse_music_request(last_user)
                 if spec:
                     kind, query, title = spec
+                    if kind == "playlist" and query in ("我喜欢", "最近播放"):
+                        emit({"type": "text",
+                              "content": "我先按你的听歌记录找找，马上给你放一首。"})
                     emit({"type": "note",
                           "content": "按%s点播：%s" %
                                      ("歌单" if kind == "playlist" else "歌名", query)})
                     answer = qqmusic_play(query, kind, title)
+                    if kind == "playlist" and query in ("我喜欢", "最近播放"):
+                        answer = answer.removeprefix("照这句说：")
+                        if not answer.startswith(("这次没能", "我还没")):
+                            answer = "这首是刚从你的听歌记录里挑的。" + answer
                     emit({"type": "text",
                           "content": answer.removeprefix("照这句说：")})
                     emit({"type": "done"})
@@ -3178,8 +3638,13 @@ class Handler(BaseHTTPRequestHandler):
                         "think": bool(req.get("think", False)),
                         # 工具调用的可靠性对这个很敏感：4B 模型在 0.7 时经常"只说要做什么、
                         # 却不真的调工具"。实测降到 0.4 明显稳定（见 README 的 agent 那节）。
-                        "options": {"temperature": 0.4, "num_ctx": LLM_NUM_CTX},
+                        "options": {"temperature": 0.4, "num_ctx": turn_num_ctx},
                     })
+                    print("[推理] ctx=%d load=%.2fs prompt=%.2fs reply=%.2fs tokens=%s" % (
+                        turn_num_ctx, resp.get("load_duration", 0) / 1e9,
+                        resp.get("prompt_eval_duration", 0) / 1e9,
+                        resp.get("eval_duration", 0) / 1e9,
+                        resp.get("eval_count", 0)))
                     msg = resp.get("message", {})
                     calls = msg.get("tool_calls") or []
                     if not calls:
@@ -3205,6 +3670,17 @@ class Handler(BaseHTTPRequestHandler):
                             messages.append(msg)
                             messages.append({"role": "user", "content": ACTION_NUDGE})
                             continue
+                        casual_issue = casual_reply_issue(last_user, text)
+                        if casual_issue and not nudged_casual and step < 3:
+                            nudged_casual = True
+                            emit({"type": "note",
+                                  "content": "检测到日常回复%s，让它按阮·梅的人设重写一次"
+                                             % casual_issue})
+                            messages.append(msg)
+                            messages.append({"role": "user", "content": CASUAL_REWRITE_NUDGE})
+                            continue
+                        if casual_issue:
+                            text = fallback_casual_reply(last_user)
                         emit({"type": "text", "content": text})
                         break
                     messages.append(msg)

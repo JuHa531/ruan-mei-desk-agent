@@ -34,6 +34,23 @@ STICKER_RULES = {
 }
 
 
+def merge_custom_stickers(stickers, assets=ASSETS):
+    """Keep generated additions when re-importing the user's original folders."""
+    custom = os.path.join(assets, 'stickers.custom.json')
+    if os.path.isfile(custom):
+        with open(custom, encoding='utf-8') as f:
+            additions = json.load(f)
+        existing = {item['file'] for item in stickers}
+        for item in additions:
+            rel = str(item.get('file', ''))
+            if not rel.startswith('assets/') or '..' in rel.split('/'):
+                continue
+            if rel not in existing and os.path.isfile(os.path.join(assets, rel[7:])):
+                stickers.append(item)
+                existing.add(rel)
+    return stickers
+
+
 def save_jpeg(im, path, max_side, quality=88, square=False):
     im = ImageOps.exif_transpose(im).convert("RGB")
     if square:
@@ -88,6 +105,7 @@ def main():
 
     with open(os.path.join(ASSETS, "bg-library.json"), "w", encoding="utf-8") as f:
         json.dump(bg_items, f, ensure_ascii=False, indent=2)
+    stickers = merge_custom_stickers(stickers)
     with open(os.path.join(ASSETS, "stickers.json"), "w", encoding="utf-8") as f:
         json.dump(stickers, f, ensure_ascii=False, indent=2)
     print("背景 %d 张，表情 %d 张" % (len(bg_items), len(stickers)))

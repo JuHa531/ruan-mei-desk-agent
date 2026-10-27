@@ -377,14 +377,19 @@
     width:20px;text-align:center;color:var(--accent);font-size:14px;opacity:.85;
   }
   body.ruanmei-theme .tool-palette{
-    display:none;grid-template-columns:1fr 1fr;gap:6px;padding:0 12px 10px;
+    display:none;position:relative;z-index:2;
+    grid-template-columns:1fr 1fr;gap:6px;padding:0 12px 10px;
   }
   body.ruanmei-theme .tool-palette.show{display:grid}
   body.ruanmei-theme .tool-palette button{
     padding:7px 8px;border-radius:8px;font-size:11px;text-align:left;
-    color:var(--muted);background:rgba(5,18,14,.42);
+    color:#d8ebe3;background:rgba(5,18,14,.88);
+    border-color:rgba(126,224,198,.18);backdrop-filter:none;
+    text-shadow:none;
   }
-  body.ruanmei-theme .tool-palette button:hover{color:var(--ink)}
+  body.ruanmei-theme .tool-palette button:hover{
+    color:#fff;background:rgba(20,52,43,.94);
+  }
   body.ruanmei-theme .sect{
     padding:8px 16px 5px;color:var(--muted);font-size:10.5px;
     letter-spacing:.14em;text-transform:uppercase;
@@ -840,6 +845,57 @@
     }
     body.ruanmei-theme .sticker-msg{width:150px;height:150px}
   }
+  /* Keep long voice notices out of the action row, including small desktop windows. */
+  body.ruanmei-theme main{container-type:inline-size}
+  body.ruanmei-theme header{
+    display:grid;grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:"heading actions" "status status";
+    height:auto;min-height:102px;padding:34px 20px 10px;gap:6px 12px;
+    flex-wrap:nowrap;align-items:center;
+    background:linear-gradient(180deg,rgba(4,14,11,.58),rgba(4,14,11,.16));
+    border-bottom:1px solid rgba(126,224,198,.10);
+  }
+  body.ruanmei-theme .header-heading{grid-area:heading;display:flex;align-items:center;gap:10px;min-width:0}
+  body.ruanmei-theme header .ttl{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+  body.ruanmei-theme header .ttl h1{font-size:17px;width:100%;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body.ruanmei-theme.compact header .ttl h1{max-width:none}
+  body.ruanmei-theme.narrow header{padding-right:20px}
+  body.ruanmei-theme header .ttl .sub{display:flex;letter-spacing:.04em;font-size:10px}
+  body.ruanmei-theme header .sp{grid-area:actions;margin:0;flex-wrap:nowrap;gap:6px;flex-shrink:0}
+  body.ruanmei-theme header button{white-space:nowrap;flex-shrink:0;height:30px;padding:5px 9px}
+  body.ruanmei-theme header #sayState{
+    grid-area:status;display:block;min-width:0;min-height:16px;line-height:16px;
+    font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  body.ruanmei-theme.rail-collapsed #app{grid-template-columns:272px minmax(0,1fr)}
+  body.ruanmei-theme.rail-collapsed #rail{display:none}
+  body.ruanmei-theme .rail-toolbar{display:flex;align-items:center;justify-content:space-between;padding:32px 18px 8px;gap:12px}
+  body.ruanmei-theme .rail-toolbar span{font-size:11px;color:var(--muted);letter-spacing:.08em}
+  body.ruanmei-theme #railClose{white-space:nowrap;font-size:11px;padding:5px 9px}
+  body.ruanmei-theme #rail{display:flex;flex-direction:column}
+  body.ruanmei-theme .rail-scroll{height:auto;min-height:0;flex:1;padding-top:8px}
+  #railBack{display:none}
+  body.ruanmei-theme.rail-collapsed #stickerPop{right:20px}
+  @container (max-width:640px){
+    body.ruanmei-theme header{grid-template-columns:minmax(0,1fr);grid-template-areas:"heading" "actions" "status";gap:8px;padding:34px 16px 10px}
+    body.ruanmei-theme header .sp{justify-content:flex-start}
+    body.ruanmei-theme header .ttl{flex-direction:row;align-items:baseline;gap:10px}
+    body.ruanmei-theme header .ttl .sub{flex-shrink:0}
+    body.ruanmei-theme.narrow header{padding-right:16px}
+  }
+  @container (max-width:420px){
+    body.ruanmei-theme header .ttl .sub{display:none}
+    body.ruanmei-theme header{padding-left:12px;padding-right:12px}
+    body.ruanmei-theme.narrow header{padding-right:12px}
+  }
+  @media (max-width:1180px){
+    body.ruanmei-theme.rail-open #rail{
+      display:flex;position:fixed;right:0;top:0;bottom:0;width:min(340px,90vw);
+      z-index:55;background:rgba(4,17,13,.98);box-shadow:-16px 0 60px rgba(0,0,0,.4);
+    }
+    body.ruanmei-theme.rail-open #railBack{display:block;position:fixed;inset:0;z-index:54;background:rgba(0,0,0,.45)}
+    body.ruanmei-theme.rail-open .rail-toolbar{padding-top:42px}
+  }
 </style>
 </head>
 <body class="ruanmei-theme">
@@ -891,18 +947,20 @@
 
   <main>
     <header>
+      <div class="header-heading">
       <button id="menu" class="menu" title="侧栏">☰</button>
       <div class="ttl">
         <h1 id="title">新的对话</h1>
         <div class="sub"><span class="dot-live"></span>阮梅 · 本地 Agent
           <span class="wd" id="wd">—</span></div>
       </div>
-      <span class="mode-chip">日常模式</span>
+      </div>
       <span class="sp">
-        <span id="sayState" class="saystate"></span>
         <button id="voice" class="on" title="每条回复自动朗读；语气会根据内容自动选择。关掉就只在你点「重播」时出声">🔊 自动朗读</button>
         <button id="skin">🎨 外观</button>
+        <button id="railToggle" aria-controls="rail" aria-expanded="true" title="收起右侧栏">侧栏 ›</button>
       </span>
+      <span id="sayState" class="saystate" role="status" aria-live="polite"></span>
     </header>
 
     <div id="log"></div>
@@ -910,10 +968,13 @@
     <footer>
       <div class="ctr">
         <button class="mic" id="mic" title="语音输入：点一下开始说，再点一下结束（离线识别）">🎙 说话</button>
+        <button id="attachImage" title="选择图片，也可以粘贴或拖入图片">＋ 图片</button>
+        <input id="imageFile" type="file" accept="image/*" multiple hidden>
         <textarea id="inp" placeholder="和阮梅说点什么…"
           title="可以直接让我读写文件、跑命令；Enter 发送，Shift+Enter 换行"></textarea>
         <button class="send" id="send">发送</button>
       </div>
+      <div id="pendingImages" class="opts" aria-live="polite"></div>
       <div class="opts">
         <span>工具：文件 · 命令 · 系统 · 看图 · 软件 · 手机 · 音乐 · 提醒 · 习惯 · Office · 视频</span>
         <button id="stickerBtn" class="sticker-open" title="发送一张表情包">☺ 表情</button>
@@ -923,6 +984,7 @@
   </main>
 
   <section id="rail">
+    <div class="rail-toolbar"><span>角色与日常</span><button id="railClose" aria-label="收起右侧栏">收起 ›</button></div>
     <div class="rail-scroll">
       <div class="rail-card char-card">
         <img class="char-img" src="/assets/bg.jpg" alt="阮梅">
@@ -970,6 +1032,7 @@
 </div>
 
 <div id="sideBack"></div>
+<div id="railBack"></div>
 <div id="drawerBack"></div>
 <div id="stickerPop">
   <div class="sp-head"><b>表情包</b><button class="mini wide" id="autoStickerBtn2">自动·开</button><button id="stickerPopClose" title="关闭">✕</button></div>
@@ -988,12 +1051,9 @@
     分块朗读（约 3 秒就出声，句与句之间有停顿）
   </label>
   <label style="display:flex;align-items:center;gap:9px;color:var(--ink);margin:0 0 4px">
-    <input type="checkbox" id="pauseBgChk" style="width:auto">
-    朗读时让背景视频停一下（防卡顿）
+    <input type="checkbox" id="pauseBgChk" style="width:auto" disabled>
+    背景视频全程持续播放（回复和语音合成期间也不会暂停）
   </label>
-  <p class="tip" style="margin:0 0 10px">语音合成和背景视频都要用显卡，回答的那十几秒里
-    背景容易一顿一顿。勾上就是"说话时背景暂停、说完接着放"——代价是长回复念多久、
-    背景就停多久（最多 60 秒会强制放开）。</p>
   <p class="tip" style="margin:0 0 10px">不勾选 = 整段合成：没有任何接缝、最连贯，
     但长回复要等十几秒才出声。</p>
 
@@ -1110,10 +1170,12 @@ function pickTone(userText, replyText){
       /报错|错误|失败|无法|不能|抱歉|风险|删除|权限|命令|代码|配置|安装|卸载|检查|诊断/.test(r)) {
     return 'calm';
   }
-  const wry = /调侃|逗你|骗你的|才不|哼|明知故问|猜猜|奖励|想要什么|这可|你啊/;
-  if (wry.test(r) || wry.test(u)) return 'wry';
-  const warm = /好呀|当然|开心|喜欢|可爱|太好|恭喜|加油|陪你|抱抱|别担心|欢迎|辛苦|哈哈|～|呀|呢|哦/;
-  if (warm.test(r) || /开心|喜欢|好呀|哈哈|可爱|奖励/.test(u)) return 'warm';
+  // 语气跟随她实际说的话；普通语气词、用户的情绪和歌名不触发调侃。
+  const content = r.replace(/[《「“][^》」”]*[》」”]/g, '');
+  if (/(?:要什么|想要什么|给你一点|给你一个)奖励|逗你而已|和之前一样.{0,6}奖励/.test(content)
+      && !/不.{0,3}奖励|没有奖励/.test(content)) return 'wry';
+  if (/晚安|好好休息|陪你坐一会|给你留.{0,8}(?:糕点|茶)/.test(content)
+      || /(?:语气|声音).{0,6}(?:轻柔|温柔)|(?:轻柔|温柔).{0,6}(?:语气|声音)/.test(u)) return 'warm';
   return 'calm';
 }
 /* 复用一个播放器元素：浏览器对自动播放的限制只认第一次，
@@ -1240,6 +1302,13 @@ function renderItem(it, live){
     bub.appendChild(el('div', null, '…'));
     col.appendChild(bub);
   }
+  for (const path of (it.images || [])) {
+    const image = el('img');
+    image.src = '/api/image?path=' + encodeURIComponent(path);
+    image.alt = '已上传的图片';
+    image.style.cssText = 'max-width:240px;max-height:180px;border-radius:10px;display:block;margin:6px 0';
+    col.appendChild(image);
+  }
   if (it.sticker) {
     const sb = el('div', 'bubble sticker-bubble');
     const im = el('img', 'sticker-msg');
@@ -1252,7 +1321,7 @@ function renderItem(it, live){
   if (it.role === 'assistant' && it.text && it.done) {
     const row2 = el('div', 'opts'); row2.style.marginTop = '7px';
     const b = el('button', null, '🔊 重播');
-    b.onclick = () => { speechAbort(); speak(it.text, b); };   // 重播优先，先掐掉流式队列
+    b.onclick = () => { speechAbort(); speak(it.text, b, '', it.voiceTone || ''); };
     row2.appendChild(b); col.appendChild(row2);
   }
   row.appendChild(col);
@@ -1610,6 +1679,7 @@ function sayState(s, level){
   const e = $('sayState');
   if (!e) return;
   e.textContent = s || '';
+  e.title = s || '';
   e.className = 'saystate' + (level ? ' ' + level : '');
 }
 
@@ -1631,9 +1701,9 @@ async function playUrl(url){
 
 /* 合成一段文字并朗读。注意：这个函数只管“读”，开关的判断放在调用处，
    这样手动点「重播」永远有效，不受自动朗读开关影响。 */
-async function speak(text, btn, userText=''){
+async function speak(text, btn, userText='', toneOverride=''){
   if (!text.trim()) return;
-  const tone = pickTone(userText, text);
+  const tone = toneOverride || pickTone(userText, text);
   const key = ttsKey(text, tone);
   if (btn) { btn.textContent = '合成中…'; btn.disabled = true; }
   const bgTok = bgHoldStart();
@@ -1697,18 +1767,18 @@ function playBufferOnce(buffer){
      4) 用 Web Audio 精确排期播放，块与块之间是「掐掉头尾静音 + 固定停顿」，
         不是"这一段播完再加载下一段"——后者那段加载空白不可控，就是卡顿的来源；
      5) 代码块不念，切块时避开还没闭合的 ``` 区域。 */
-const SP_FIRST = 40;    // 第一块：第一句，最多这么多字
-const SP_MINLEN = 70;   // 第一块之后，攒够这么多字才切下一块（接缝越少越自然）
-const SP_CHUNK = 160;   // 每块的上限
+const SP_FIRST = 28;    // 第一块尽量短，先让声音尽快出来
+const SP_MINLEN = 48;   // 后续块兼顾自然接缝与补料速度
+const SP_CHUNK = 120;   // 每块上限
 /* 每块最多比上一块大这么多倍。合成速度（约 3.4 字/秒播放 vs 7 字/秒合成，
    64 步时）决定了这个上限：再大就会出现"上一块播完了、下一块还在合"的空档。 */
 const SP_GROW  = 1.5;
-const SP_HARD  = 260;   // 一直没句末标点时最多攒到这里
-const SP_CONC  = 2;     // 同时在合成几段
-const SP_SEAM  = 0.22;  // 块与块之间的停顿（秒），跟后端内部分句的 0.20 对齐
+const SP_HARD  = 180;   // 一直没句末标点时最多攒到这里
+const SP_CONC  = 1;     // 9880 串行合成；按序排队，第一句优先
+const SP_SEAM  = 0.60;  // 句间稍多留白，保持克制舒缓；不对波形变速。
 const SP_FADE  = 0.025; // 每块头尾的淡入淡出，消除咔哒声
 
-const sp = {on: false, buf: '', seq: 0, next: 0, audio: new Map(), nodes: [],
+const sp = {on: false, generation: 0, controllers: new Set(), buf: '', seq: 0, next: 0, audio: new Map(), nodes: [],
             active: 0, failed: 0, firstAt: 0, t0: 0, chunks: 0,
             ctx: null, nextAt: 0, endTimer: 0, lastLen: 0,
             parts: [], revealed: 0, revealTimers: [], revealFn: null,
@@ -1743,26 +1813,15 @@ function cachePut(key, entry){
   }
 }
 
-/* 朗读时让背景视频让路：TTS 在显卡上合成，跟背景视频解码抢资源，
-   实测回答的那十几秒里背景会一顿一顿。让路 = 把那两个 <video> 按暂停，
-   说完自动接着放（loopGuard 会认这个 hold 标记，不会抢着把它叫醒）。 */
-let pauseBgWhileSpeak = localStorage.getItem('rm_pausebg') !== '0';
+/* 回复和语音合成期间始终让背景视频独立播放。旧版会主动暂停背景以给
+   TTS 让路，结果长回复期间画面直接定格；这里同时清除旧的本地设置和
+   残留 hold 标记，避免升级后仍被上一次的暂停状态卡住。 */
+let pauseBgWhileSpeak = false;
+try { localStorage.setItem('rm_pausebg', '0'); } catch (e) {}
 let bgToken = 0;
-/* 用"代次"而不是计数器：新一轮朗读会把 bgToken 加一，
-   上一轮留下的延时恢复任务发现代次变了就不动手 —— 否则很容易出现
-"刚开始念下一句、上一句的定时器把背景又放开了"这种打架。 */
 function bgHoldStart(){
   const t = ++bgToken;
-  if (!pauseBgWhileSpeak) return t;
-  document.querySelectorAll('#bglayer video, #sidebg video').forEach(v => {
-    try {
-      v.dataset.hold = '1';
-      if (!v.paused) v.pause();
-    } catch (e) {}
-  });
-  /* 兜底：万一合成那条链路整个卡死（接口不返回、队列没人推进），
-     背景不能被按住一整天。60 秒后强制放开。 */
-  setTimeout(() => { if (t === bgToken) bgVideoResume(); }, 60000);
+  bgVideoResume();
   return t;
 }
 function bgHoldEndNow(token){
@@ -1774,7 +1833,8 @@ function bgHoldEndAfter(ms, token){
 function bgVideoResume(){
   document.querySelectorAll('#bglayer video, #sidebg video').forEach(v => {
     try {
-      if (v.dataset.hold === '1') { delete v.dataset.hold; v.play().catch(() => {}); }
+      delete v.dataset.hold;
+      if (v.paused) v.play().catch(() => {});
     } catch (e) {}
   });
 }
@@ -1801,6 +1861,9 @@ function fenceOdd(s){
 
 function speechAbort(){
   sp.on = false;
+  sp.generation++;
+  sp.controllers.forEach(ac => ac.abort());
+  sp.controllers.clear();
   sp.nodes.forEach(n => { try { n.stop(); } catch (e) {} });
   sp.nodes = [];
   sp.audio.clear();
@@ -1851,7 +1914,7 @@ function speechCtx(){
   return sp.ctx;
 }
 
-/* 掐掉头尾静音，只留 15ms 余量——这是接缝听起来干不干净的关键 */
+/* 保留头尾 80ms，避免把轻声起音和尾音切掉。 */
 function trimSilence(buffer){
   const d = buffer.getChannelData(0);
   const thr = 0.006;
@@ -1859,7 +1922,7 @@ function trimSilence(buffer){
   while (s < d.length && Math.abs(d[s]) < thr) s++;
   while (e > s && Math.abs(d[e]) < thr) e--;
   if (e <= s) return {start: 0, end: d.length};
-  const pad = Math.round(buffer.sampleRate * 0.015);
+  const pad = Math.round(buffer.sampleRate * 0.08);
   return {start: Math.max(0, s - pad), end: Math.min(d.length, e + pad + 1)};
 }
 
@@ -1889,17 +1952,19 @@ function takeChunk(force){
   let m;
   while ((m = re.exec(s)) !== null) {
     const end = m.index + 1;
-    if (end > limit) break;
+    if (end > (first ? 64 : limit)) break;
     ends.push(end);
   }
   if (ends.length) {
     // 第一块只要第一句（太短就顺延到第二句），后面的尽量打包到 limit
-    cut = first ? (ends.find(e => e >= 8) || ends[0]) : ends[ends.length - 1];
+    // 不把“亲爱的，我查了下。”这种短引子单独合成，留给后面的完整句子。
+    cut = first ? (ends.find(e => e >= 12) || -1) : ends[ends.length - 1];
   }
   if (cut < 0 && s.length > limit) {
     const k = Math.max(s.lastIndexOf('，', limit), s.lastIndexOf('、', limit),
                        s.lastIndexOf('\n', limit));
-    cut = k >= 4 ? k + 1 : Math.min(s.length, SP_HARD);
+    cut = k >= (first ? 12 : 4) ? k + 1
+      : (first && s.length <= 64 ? -1 : Math.min(s.length, first ? 64 : SP_HARD));
   }
   if (cut < 0) return null;
   /* 除了第一块，其他块要攒够 SP_MINLEN 才切——否则一句话就被切成一块，
@@ -1914,29 +1979,50 @@ function takeChunk(force){
 }
 
 async function synthChunk(text, seq, tone){
+  const generation = sp.generation;
+  const current = () => sp.on && sp.generation === generation;
   sp.parts[seq] = text;                   // 记下来，等它开始播的时候再把文字显示出来
-  while (sp.active >= SP_CONC && sp.on) await new Promise(r => setTimeout(r, 50));
-  if (!sp.on) return;
+  while (sp.active >= SP_CONC && current()) await new Promise(r => setTimeout(r, 50));
+  if (!current()) return;
   sp.active++;
-  // 合成请求加硬超时：以前没超时，后端预热/卡住时这一块会永远等下去，
-  // 而流式模式下文字是跟着语音出场的，于是就"她一句话都没回"。
-  const ac = new AbortController();
-  const tid = setTimeout(() => { try { ac.abort(); } catch (e) {} }, 120000);
   try {
-    const r = await fetch('/api/tts', {method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text, voice: 'ruanmei:' + (tone || pickTone(sp.userText, text))}),
-      signal: ac.signal});
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    sp.audio.set(seq, await r.arrayBuffer());
+    let audio = null;
+    let lastErr = null;
+    // 单段偶发失败时重试一次；不能因为一段失败就漏掉整句。
+    for (let attempt = 0; attempt < 2 && current(); attempt++) {
+      const ac = new AbortController();
+      sp.controllers.add(ac);
+      const tid = setTimeout(() => { try { ac.abort(); } catch (e) {} }, 120000);
+      try {
+        const r = await fetch('/api/tts', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text, voice: 'ruanmei:' + (tone || pickTone(sp.userText, text))}),
+          signal: ac.signal});
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        audio = await r.arrayBuffer();
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (attempt === 0 && current()) await new Promise(r => setTimeout(r, 180));
+      } finally {
+        clearTimeout(tid);
+        sp.controllers.delete(ac);
+      }
+    }
+    if (!current()) return;
+    sp.audio.set(seq, audio);
+    if (!audio && lastErr) throw lastErr;
   } catch (e) {
-    sp.audio.set(seq, null);      // 这一段失败就跳过，别卡住整条队列
-    sp.failed++;
+    if (current()) {
+      sp.audio.set(seq, null);
+      sp.failed++;
+    }
   } finally {
-    clearTimeout(tid);
-    sp.active--;
-    pumpSpeech();
-    speechMaybeDone();
+    if (current()) {
+      sp.active--;
+      pumpSpeech();
+      speechMaybeDone();
+    }
   }
 }
 
@@ -1963,6 +2049,12 @@ function speechMaybeDone(){
 
 /* 把这次流式朗读的每一块按顺序拼成一条音频，存进缓存。
    块与块之间补上和播放时一样的停顿，重播听起来才跟第一次一致。 */
+function speechPause(text){
+  const ending = String(text || '').trim().replace(/[”’」』》）)\]】"']+$/g, '');
+  return /[，、,:：]$/.test(ending) ? 0.42
+       : /[…]|\.\.\.$/.test(ending.slice(-3)) ? 0.80
+       : /[！？!?]$/.test(ending) ? 0.68 : SP_SEAM;
+}
 function cacheStreamedSpeech(){
   if (sp.cached || !sp.fullText || !sp.ctx) return;
   const bufs = [];
@@ -1970,21 +2062,22 @@ function cacheStreamedSpeech(){
   // 中间有块合成失败也照样能拼（缺的那块跳过）。
   [...sp.decoded.keys()].sort((a, b) => a - b).forEach(k => {
     const b = sp.decoded.get(k);
-    if (b) bufs.push(b);
+    if (b) bufs.push({buffer:b, ...trimSilence(b), pause:speechPause(sp.parts[k])});
   });
   if (!bufs.length) return;
   sp.cached = true;
   try {
-    const sr = bufs[0].sampleRate;
-    const seam = Math.round(sr * SP_SEAM);
-    const total = bufs.reduce((n, b) => n + b.length, 0) + seam * (bufs.length - 1);
+    const sr = bufs[0].buffer.sampleRate;
+    const total = bufs.reduce((n, b, i) => n + b.end - b.start + (i < bufs.length-1 ? Math.round(sr*b.pause) : 0), 0);
     const out = sp.ctx.createBuffer(1, total, sr);
     const ch = out.getChannelData(0);
     let off = 0;
     bufs.forEach((b, i) => {
-      ch.set(b.getChannelData(0), off);
-      off += b.length;
-      if (i < bufs.length - 1) off += seam;
+      const samples = b.buffer.getChannelData(0).subarray(b.start,b.end);
+      const fade = Math.max(1,Math.min(Math.round(sr*SP_FADE),Math.floor(samples.length/3)));
+      for(let j=0;j<samples.length;j++) ch[off+j]=samples[j]*Math.min(1,j/fade,(samples.length-1-j)/fade);
+      off += samples.length;
+      if (i < bufs.length - 1) off += Math.round(sr*b.pause);
     });
     cachePut(ttsKey(sp.fullText, sp.tone), {kind: 'buffer', buffer: out});
   } catch (e) {
@@ -2016,7 +2109,7 @@ function scheduleBuffer(buffer, seq){
   src.start(at, startSec, dur);
   sp.nodes.push(src);
   if (sp.nodes.length > 24) sp.nodes.splice(0, sp.nodes.length - 24);
-  sp.nextAt = at + dur + SP_SEAM;
+  sp.nextAt = at + dur + speechPause(sp.parts[seq]);
   scheduleReveal(seq + 1, at);            // 这一块开始播之前把文字显出来
   if (!sp.firstAt) {
     sp.firstAt = performance.now();
@@ -2032,9 +2125,10 @@ function scheduleBuffer(buffer, seq){
 let spPumping = false;
 async function pumpSpeech(){
   if (spPumping || !sp.on) return;
+  const generation = sp.generation;
   spPumping = true;
   try {
-    while (sp.on) {
+    while (sp.on && generation === sp.generation) {
       if (!sp.audio.has(sp.next)) break;
       const ab = sp.audio.get(sp.next);
       sp.audio.delete(sp.next);
@@ -2044,6 +2138,7 @@ async function pumpSpeech(){
       if (!ctx) { sayState(''); break; }       // 浏览器不支持 Web Audio
       if (ctx.state === 'suspended') {
         await ctx.resume().catch(() => {});
+        if (generation !== sp.generation) break;
         if (ctx.state === 'suspended') {       // 还没被用户点过，先存着
           sp.audio.set(sp.next - 1, ab); sp.next--;
           blockedAudio = true; sayState('点一下窗口就开始读', 'warn');
@@ -2053,23 +2148,24 @@ async function pumpSpeech(){
       let buffer;
       try { buffer = await ctx.decodeAudioData(ab); }
       catch (e) { continue; }
-      if (!sp.on) break;
+      if (!sp.on || generation !== sp.generation) break;
       sp.decoded.set(sp.next - 1, buffer);   // 留着，读完拼成一条缓存给「重播」用
       scheduleBuffer(buffer, sp.next - 1);
     }
   } finally {
     spPumping = false;
+    if (sp.on && generation !== sp.generation && sp.audio.has(sp.next)) pumpSpeech();
   }
 }
 
 function speechFeed(t){
   if (!sp.on) return;
   sp.buf += t;
-  if (!sp.tone) sp.tone = pickTone(sp.userText, t);
   for (let k = 0; k < 8; k++) {
     const c = takeChunk(false);
     if (!c) break;
     if (c.trim().length < 4) { sp.buf = c + sp.buf; break; }
+    if (!sp.tone) sp.tone = pickTone(sp.userText, c + sp.buf);
     sp.chunks++;
     synthChunk(c, sp.seq++, sp.tone);
   }
@@ -2137,9 +2233,43 @@ function quickSend(text){
   send();
 }
 
+let pendingImages = [];
+let imageUploading = false;
+function drawPendingImages(){
+  const box = $('pendingImages'); box.innerHTML = '';
+  for (const path of pendingImages) {
+    const button = el('button', null, '图片 ' + (pendingImages.indexOf(path) + 1) + ' ×');
+    button.onclick = () => { pendingImages = pendingImages.filter(p => p !== path); drawPendingImages(); };
+    box.appendChild(button);
+  }
+}
+async function uploadImages(files){
+  if (busy || imageUploading) return;
+  imageUploading = true; $('attachImage').disabled = true;
+  try {
+    for (const file of Array.from(files).slice(0, 3 - pendingImages.length)) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > 15 * 1024 * 1024) throw new Error('图片不能超过 15MB');
+      const r = await fetch('/api/upload_image', {method:'POST', body:file});
+      const result = await r.json();
+      if (!r.ok) throw new Error(result.error || '上传失败');
+      pendingImages.push(result.path); drawPendingImages();
+    }
+  } catch(e) { toast(e.message); }
+  finally { imageUploading = false; $('attachImage').disabled = false; }
+}
+$('attachImage').onclick = () => $('imageFile').click();
+$('imageFile').onchange = async e => { await uploadImages(e.target.files); e.target.value = ''; };
+inp.addEventListener('paste', e => {
+  const images = Array.from(e.clipboardData.items).filter(i => i.type.startsWith('image/')).map(i => i.getAsFile());
+  if (images.length) { e.preventDefault(); uploadImages(images); }
+});
+$('log').addEventListener('dragover', e => e.preventDefault());
+$('log').addEventListener('drop', e => { e.preventDefault(); uploadImages(e.dataTransfer.files); });
+
 async function send(){
-  const text = inp.value.trim();
-  if (!text || busy) return;
+  const text = inp.value.trim() || (pendingImages.length ? '请描述这张图片，并读出图中的文字。' : '');
+  if (!text || busy || imageUploading) return;
   /* 唤醒词：说到「亲爱的」就是在叫梅梅。
      只叫一声（后面没别的内容）时不该去打扰模型 —— 直接答应，快而且不会答偏；
      后面带了要求就照常走完整流程，另外在服务端加一句提示，免得它把这个称呼理解成
@@ -2152,7 +2282,8 @@ async function send(){
   if (autoSpeak && streamSpeak) speechBegin(text);   // 边生成边读
 
   const s = cur();
-  s.items.push({role: 'user', text});
+  s.items.push({role: 'user', text, images: pendingImages.slice()});
+  pendingImages = []; drawPendingImages();
   if (s.title === '新的对话') s.title = text.slice(0, 18);
   const asst = {role: 'assistant', text: '', tools: [], done: false};
   asst.shown = '';                       // 已经显示出来的部分（跟随语音）
@@ -2166,21 +2297,24 @@ async function send(){
     bub.appendChild(fmt(asst.shown || '…'));
     log.scrollTop = log.scrollHeight;
   };
-  if (autoSpeak && streamSpeak) {
-    // 文字由语音驱动：每块开始播之前才显示对应文字
-    sp.revealFn = (shown) => { asst.shown = shown; drawBubble(); };
-  } else {
-    sp.revealFn = null;
-    asst.shown = '';
-  }
+  // 正文和语音彼此独立：文字一到就显示，不让 TTS 预热或失败拖住回复。
+  sp.revealFn = null;
+  asst.shown = '';
 
   const history = s.items.filter(i => i.role === 'user' || (i.role === 'assistant' && i.done))
-                          .map(i => ({role: i.role, content: i.text}));
+                          .map(i => ({role: i.role, content: i.text, ...(i.images?.length ? {images:i.images} : {})}));
 
   try {
     const r = await fetch('/api/agent', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({messages: history, think: false})});
+    if (!r.ok) {
+      let detail='';
+      if ((r.headers.get('Content-Type') || '').includes('application/json')) {
+        try { detail=(await r.json()).error || ''; } catch (_) {}
+      }
+      throw new Error(detail || ('请求未成功（HTTP ' + r.status + '），请缩短输入或检查服务。'));
+    }
     const reader = r.body.getReader(); const dec = new TextDecoder();
     let buf = '';
     while (true) {
@@ -2193,11 +2327,10 @@ async function send(){
         let j; try { j = JSON.parse(ln); } catch(e) { continue; }
         if (j.type === 'text') {
           asst.text += j.content;
+          asst.shown = asst.text;
+          drawBubble();
           if (autoSpeak && streamSpeak) {
-            speechFeed(j.content);          // 边收边切块送合成；文字由语音那边按节奏显示
-          } else {
-            asst.shown = asst.text;
-            drawBubble();
+            speechFeed(j.content);          // 边收边送合成，不阻塞正文显示
           }
         } else if (j.type === 'tool') {
           asst.tools.push({name: j.name, args: j.args, result: null});
@@ -2236,12 +2369,15 @@ async function send(){
   }
 
   if (autoSticker && asst.text && !asst.sticker) {
+    if (!stickerItems.length) await loadStickers();
     const pick = pickSticker(text, asst.text);
     if (pick) {
       asst.sticker = pick.file;
       asst.mood = pick.mood || pick.label;
     }
   }
+  asst.voiceTone = (autoSpeak && streamSpeak && sp.tone) || pickTone(text, asst.text);
+  if (autoSpeak && streamSpeak && !sp.tone) sp.tone = asst.voiceTone;
   asst.done = true;
   saveSessions(); render();
   row = log.lastElementChild;     // render() 重建了 DOM，把引用接回来，后面 reveal 才画得上去
@@ -2553,6 +2689,10 @@ setInterval(loadTaste, 60000);
 /* ---------------- 表情包回复 ---------------- */
 let stickerItems = [];
 let autoSticker = localStorage.getItem('rm_auto_sticker') !== '0';
+if (localStorage.getItem('rm_reply_stickers_20261027') !== '1') {
+  autoSticker = true;
+  localStorage.setItem('rm_reply_stickers_20261027','1');
+}
 function setAutoSticker(on){
   autoSticker = !!on;
   localStorage.setItem('rm_auto_sticker', autoSticker ? '1' : '0');
@@ -2563,22 +2703,36 @@ function setAutoSticker(on){
 function pickSticker(userText, replyText){
   const u = String(userText || '');
   const r = String(replyText || '');
-  if (/表情包|发个表情|来个表情/.test(u)) {
-    return stickerItems[Math.floor(Math.random() * stickerItems.length)] || null;
+  const explicit = /表情包|发个表情|来个表情/.test(u);
+  if (!r.trim() && !explicit) return null;
+  if (!explicit && (r.includes('```') || r.length > 1200 || /（(?:连接失败|出错)：/.test(r)
+      || /去世|葬礼|自杀|自残|丧亲/.test(u+r))) return null;
+  const content = (explicit ? u + '。' + r : r)
+    .replace(/[《「“][^》」”]*[》」”]/g,'')
+    .replace(/(?:没有|并不|不必|无需|并非|不是|别再|不要)(?:再|很|感到)?(?:叹气|无语|疑惑|奖励|休息|完成|睡觉)/g,'');
+  let intent='listening';
+  if (/晚安|早点睡|该睡了|睡吧|明天见|好好休息/.test(content)) intent='goodnight';
+  else if (/要什么奖励|给你.{0,4}奖励|想要什么奖励|奖励你/.test(content)) intent='reward';
+  else if (/先停一会|休息|放松|不急|慢慢来|喝茶|茶点|清茶|糕点|听.{0,5}(?:歌|音乐)|播放|口味|歇一会/.test(content)) intent='leisure';
+  else if (!/还没|尚未|未完成|没能|失败|无法/.test(content)
+      && /已.{0,12}(?:完成|安排|记下|记录|保存|整理)|做好了|处理好了|做得不错|没问题|有道理|说得对/.test(content)) intent='approval';
+  else if (/唉|叹气|无奈|可惜|遗憾/.test(content)) intent='sigh';
+  else if (/无语|离谱|没话说/.test(content)) intent='speechless';
+  else if (/不确定|你指的是|哪一个|哪一项|请.{0,4}说明|疑惑|困惑|[？?]/.test(content)) intent='question';
+  const moods={sigh:'叹气',leisure:'悠闲',speechless:'无语',question:'疑惑',reward:'疑问',
+    listening:'倾听',approval:'认可',goodnight:'晚安'};
+  const candidates = stickerItems.filter(it => (it.intents || []).includes(intent) || it.mood===moods[intent]);
+  const fallback = stickerItems.filter(it => it.mood==='倾听');
+  const matching=candidates.length ? candidates : fallback;
+  const noBlush=matching.filter(it => it.blush===false);
+  const choices=noBlush.length ? noBlush : matching;
+  if (!choices.length) return null;
+  let best=choices[0],bestScore=-1;
+  for(const it of choices){
+    const score=(it.keywords || []).reduce((n,kw)=>n+(content.includes(kw)?1:0),0);
+    if(score>bestScore){best=it;bestScore=score;}
   }
-  if (!r || r.includes('```') || r.length > 1200) return null;
-  const strongUser = /好累|累死|无语|离谱|搞不懂|不明白|有点疑惑|奖励|要什么|悠闲|休息一下|好舒服/.test(u);
-  let best = null, bestScore = 0;
-  stickerItems.forEach(it => {
-    let score = 0;
-    (it.keywords || []).forEach(kw => {
-      if (u.includes(kw)) score += 2;
-      if (r.includes(kw)) score += 1;
-    });
-    if (it.label && r.includes(it.label)) score += 1;
-    if (score > bestScore) { best = it; bestScore = score; }
-  });
-  return (bestScore >= 3 || (bestScore >= 2 && strongUser)) ? best : null;
+  return best;
 }
 function fillStickerGrid(box, items){
   if (!box) return;
@@ -2637,11 +2791,10 @@ $('voice').textContent = autoSpeak ? '🔊 自动朗读' : '🔇 自动朗读';
 $('streamChk').checked = streamSpeak;
 $('pauseBgChk').checked = pauseBgWhileSpeak;
 $('pauseBgChk').onchange = function(){
-  pauseBgWhileSpeak = this.checked;
-  localStorage.setItem('rm_pausebg', pauseBgWhileSpeak ? '1' : '0');
-  if (!pauseBgWhileSpeak) { bgToken++; bgVideoResume(); }
-  toast(pauseBgWhileSpeak ? '朗读时背景视频会暂停，说完自动接着放'
-                          : '朗读时背景视频照常播放（显卡吃紧时可能会卡）');
+  pauseBgWhileSpeak = false;
+  this.checked = false;
+  localStorage.setItem('rm_pausebg', '0');
+  bgToken++; bgVideoResume();
 };
 $('streamChk').onchange = function(){
   streamSpeak = this.checked;
@@ -2718,6 +2871,33 @@ setTimeout(() => {
 
 /* 首次打开时 WebView2 可能先按临时尺寸排版，窗口真正定下来后没有触发重排。
    这里按实际 innerWidth 打类，并用 ResizeObserver 跟住窗口尺寸变化。 */
+let railCollapsed = localStorage.getItem('rm_rail_collapsed') === '1';
+function syncRail(){
+  const overlay = window.innerWidth <= 1180;
+  const open = overlay ? document.body.classList.contains('rail-open') : !railCollapsed;
+  document.body.classList.toggle('rail-collapsed', railCollapsed);
+  $('railToggle').setAttribute('aria-expanded', String(open));
+  $('railToggle').textContent = open ? '侧栏 ›' : '‹ 侧栏';
+  $('railToggle').title = open ? '收起右侧栏' : '展开右侧栏';
+  $('rail').inert = !open;
+}
+function closeRail(){
+  if (window.innerWidth <= 1180) document.body.classList.remove('rail-open');
+  else {railCollapsed = true;localStorage.setItem('rm_rail_collapsed','1');}
+  syncRail();
+  if ($('rail').contains(document.activeElement)) $('railToggle').focus();
+}
+$('railToggle').onclick = () => {
+  if (window.innerWidth <= 1180) document.body.classList.toggle('rail-open');
+  else {railCollapsed = !railCollapsed;localStorage.setItem('rm_rail_collapsed',railCollapsed ? '1' : '0');}
+  syncRail();
+  if (document.body.classList.contains('rail-open')) $('railClose').focus();
+};
+$('railClose').onclick = closeRail;
+$('railBack').onclick = closeRail;
+document.addEventListener('keydown',e => {
+  if (e.key === 'Escape' && document.body.classList.contains('rail-open')) closeRail();
+});
 function syncLayout(){
   const w = window.innerWidth || document.documentElement.clientWidth || 1280;
   const b = document.body;
@@ -2725,6 +2905,8 @@ function syncLayout(){
   b.classList.toggle('narrow', w <= 1180);
   b.classList.toggle('micro', w <= 1050);
   b.classList.toggle('tiny', w <= 820);
+  if (w > 1180) b.classList.remove('rail-open');
+  syncRail();
 }
 syncLayout();
 requestAnimationFrame(syncLayout);

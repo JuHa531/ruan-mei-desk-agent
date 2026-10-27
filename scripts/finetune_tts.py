@@ -22,6 +22,7 @@ GPT-SoVITS 的训练脚本从**环境变量**读路径，WebUI 也只是帮忙�
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -53,7 +54,8 @@ def run(script, env=None, extra=None):
     if env:
         e.update({k: str(v) for k, v in env.items()})
     print("  $ %s" % " ".join(cmd))
-    p = subprocess.run(cmd, cwd=ROOT, env=e)
+    p = subprocess.run(cmd, cwd=ROOT, env=e,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if p.returncode != 0:
         sys.exit("[错误] %s 退出码 %d" % (script, p.returncode))
 
@@ -103,7 +105,7 @@ def backup_preprocess():
     bak = os.path.join(OPT_DIR, "pre_" + stamp)
     os.makedirs(bak, exist_ok=True)
     for name in ("2-name2text-0.txt", "2-name2text.txt", "3-bert",
-                 "6-name2semantic-0.tsv", "6-name2semantic.tsv"):
+                 "4-cnhubert", "5-wav32k", "6-name2semantic-0.tsv", "6-name2semantic.tsv"):
         src = os.path.join(OPT_DIR, name)
         if os.path.exists(src):
             shutil.move(src, os.path.join(bak, name))
@@ -135,7 +137,10 @@ def write_s2_config(epochs, batch):
     cfg["save_weight_dir"] = "SoVITS_weights_v2"
     cfg["name"] = EXP_NAME
     cfg["version"] = "v2"
-    out = os.path.join(ROOT, "GPT_SoVITS/configs/_tmp_s2.json")
+    # Upstream save_checkpoint does not create this directory in CLI mode.
+    os.makedirs(os.path.join(OPT_DIR, "logs_s2_v2"), exist_ok=True)
+    os.makedirs(OPT_DIR, exist_ok=True)
+    out = os.path.join(OPT_DIR, "s2.json")
     json.dump(cfg, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     return out
 
@@ -147,7 +152,7 @@ def step_1b(epochs=20, batch=4):
         ["--config", os.path.relpath(cfg, ROOT).replace("\\", "/")])
 
 
-def write_s1_config(epochs, batch):
+def write_s1_config(epochs, batch, pretrained=None):
     import re
     import yaml
     src = os.path.join(ROOT, "GPT_SoVITS/configs/s1longer-v2.yaml")
@@ -167,39 +172,74 @@ def write_s1_config(epochs, batch):
     cfg["train"]["if_dpo"] = False
     cfg["train"]["half_weights_save_dir"] = "GPT_weights_v2"
     cfg["train"]["exp_name"] = EXP_NAME
-    cfg["pretrained_s1"] = pre
+    cfg["pretrained_s1"] = pretrained or pre
     cfg["train_semantic_path"] = os.path.join(opt, "6-name2semantic.tsv").replace("\\", "/")
     cfg["train_phoneme_path"] = os.path.join(opt, "2-name2text.txt").replace("\\", "/")
     cfg["output_dir"] = os.path.join(opt, "logs_s1_v2").replace("\\", "/")
     os.makedirs(os.path.join(OPT_DIR, "logs_s1_v2"), exist_ok=True)
-    out = os.path.join(ROOT, "GPT_SoVITS/configs/_tmp_s1.yaml")
+    out = os.path.join(OPT_DIR, "s1.yaml")
     with open(out, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
     return out
 
 
-def step_1c(epochs=15, batch=4):
-    cfg = write_s1_config(epochs, batch)
+def step_1c(epochs=15, batch=4, pretrained=None):
+    cfg = write_s1_config(epochs, batch, pretrained)
     print("[1C] 训练 GPT（%d 轮，batch %d）" % (epochs, batch))
     run("GPT_SoVITS/s1_train.py", {"_CUDA_VISIBLE_DEVICES": "0", "hz": "25hz"},
         ["--config_file", os.path.relpath(cfg, ROOT).replace("\\", "/")])
 
 
 def main():
+    global EXP_NAME, OPT_DIR, LIST_FILE, WAV_DIR
     ap = argparse.ArgumentParser(description="GPT-SoVITS 精调（命令行）")
-    ap.add_argument("--step", required=True, choices=["1a", "1b", "1c", "all"])
+    ap.add_argument("--step", required=True, choices=["1a", "1b", "1c", "train", "all"])
     ap.add_argument("--s2-epochs", type=int, default=20)
     ap.add_argument("--s2-batch", type=int, default=2)
     ap.add_argument("--s1-epochs", type=int, default=15)
     ap.add_argument("--s1-batch", type=int, default=4)
+    ap.add_argument("--s1-pretrained", help="已有 GPT 半精度权重；从该权重继续微调，优化器重新初始化")
     ap.add_argument("--force", action="store_true",
                     help="1A 前备份旧文本/特征，强制按当前 list.txt 重建")
+    ap.add_argument("--experiment", default=EXP_NAME, help="独立实验名，避免覆盖当前音色权重")
+    ap.add_argument("--list", default=LIST_FILE, help="已校验的训练清单")
+    ap.add_argument("--wav-dir", default=WAV_DIR)
+    ap.add_argument("--validate-only", action="store_true")
     args = ap.parse_args()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args.experiment):
+        ap.error("experiment 只能包含字母、数字、下划线和连字符")
+    if min(args.s2_epochs, args.s2_batch, args.s1_epochs, args.s1_batch) < 1:
+        ap.error("epochs / batch 必须为正整数")
+    if args.s1_pretrained and not os.path.isfile(args.s1_pretrained):
+        ap.error("找不到 s1-pretrained 权重")
+    EXP_NAME = args.experiment
+    OPT_DIR = os.path.join(EXP_ROOT, EXP_NAME)
+    LIST_FILE = os.path.abspath(args.list)
+    WAV_DIR = os.path.abspath(args.wav_dir)
 
     if not os.path.exists(LIST_FILE):
         sys.exit("[错误] 找不到 %s，先跑 build_tts_dataset.py" % LIST_FILE)
     if not os.path.isdir(ROOT):
         sys.exit("[错误] 找不到 GPT-SoVITS：%s" % ROOT)
+    import wave
+    with open(LIST_FILE, encoding="utf-8") as f:
+        lines = [l.strip() for l in f if l.strip()]
+    seconds = 0
+    for i, line in enumerate(lines, 1):
+        parts = line.split("|", 3)
+        if len(parts) != 4 or not parts[3].strip():
+            sys.exit("[错误] 训练清单第 %d 行格式不正确" % i)
+        path = parts[0] if os.path.isabs(parts[0]) else os.path.join(WAV_DIR, parts[0])
+        with wave.open(path) as w:
+            duration = w.getnframes() / w.getframerate()
+        if not 1 <= duration <= 30:
+            sys.exit("[错误] 不合理的训练片段时长：%s" % path)
+        seconds += duration
+    if len(lines) < 10:
+        sys.exit("[错误] 至少需要 10 条有效训练片段")
+    print("[校验] %d 条 / %.1f 分钟" % (len(lines), seconds / 60))
+    if args.validate_only:
+        return
 
     print("=" * 56)
     print("  实验名: %s" % EXP_NAME)
@@ -211,10 +251,10 @@ def main():
         if args.force:
             backup_preprocess()
         step_1a()
-    if args.step in ("1b", "all"):
+    if args.step in ("1b", "train", "all"):
         step_1b(args.s2_epochs, args.s2_batch)
-    if args.step in ("1c", "all"):
-        step_1c(args.s1_epochs, args.s1_batch)
+    if args.step in ("1c", "train", "all"):
+        step_1c(args.s1_epochs, args.s1_batch, args.s1_pretrained)
     print("")
     print("[完成] step=%s" % args.step)
 

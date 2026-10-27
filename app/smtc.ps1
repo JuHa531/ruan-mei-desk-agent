@@ -59,13 +59,14 @@ if ($Action -in @("vol_up", "vol_down", "mute")) {
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 $sessions = @($mgr.GetSessions())
-Say ("COUNT=" + $sessions.Count)
+Say ("TOTAL_COUNT=" + $sessions.Count)
 
 $s = $null
 if ($App) {
     $s = $sessions | Where-Object { $_.SourceAppUserModelId -match $App } | Select-Object -First 1
 }
-if (-not $s -and $sessions.Count -ge 1) { $s = $sessions[0] }
+if (-not $App -and -not $s -and $sessions.Count -ge 1) { $s = $sessions[0] }
+Say ("COUNT=" + [int][bool]$s)
 
 if ($s) {
     $props = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])

@@ -47,6 +47,8 @@ import sys
 import tempfile
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+sys.path.insert(0,os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'app'))
+from local_security import LocalRequestHandler
 
 _TTS = None
 
@@ -103,7 +105,7 @@ def run_infer(tts, req, out_path):
     tts.infer(**accepted)
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(LocalRequestHandler):
     args = None
 
     def log_message(self, fmt, *a):
@@ -130,6 +132,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             req = json.loads(self.rfile.read(n).decode("utf-8"))
+            if not isinstance(req,dict):raise ValueError('JSON object required')
         except Exception as e:
             self._send(400, json.dumps({"error": f"请求体不是合法 JSON：{e}"},
                                        ensure_ascii=False).encode("utf-8"),

@@ -93,5 +93,106 @@
       "想要点",
       "给我什么"
     ]
+  },
+  {
+    "id": 101,
+    "file": "assets/sticker-rm-listen-v2.png",
+    "thumb": "assets/sticker-rm-listen-v2-thumb.jpg",
+    "label": "倾听",
+    "mood": "倾听",
+    "intents": [
+      "listening"
+    ],
+    "keywords": [
+      "我在",
+      "听着",
+      "慢慢说",
+      "在听",
+      "分享",
+      "知道了"
+    ],
+    "origin": "generated",
+    "style_references": [
+      "sticker-02.jpg",
+      "sticker-05.jpg"
+    ],
+    "blush": false,
+    "revision": "20261027-no-blush"
+  },
+  {
+    "id": 102,
+    "file": "assets/sticker-rm-approve-v2.png",
+    "thumb": "assets/sticker-rm-approve-v2-thumb.jpg",
+    "label": "认可",
+    "mood": "认可",
+    "intents": [
+      "approval"
+    ],
+    "keywords": [
+      "完成",
+      "安排",
+      "记下",
+      "做好了",
+      "处理好了",
+      "做得不错",
+      "说得对"
+    ],
+    "origin": "generated",
+    "style_references": [
+      "sticker-02.jpg",
+      "sticker-05.jpg"
+    ],
+    "blush": false,
+    "revision": "20261027-no-blush"
+  },
+  {
+    "id": 103,
+    "file": "assets/sticker-rm-goodnight-v2.png",
+    "thumb": "assets/sticker-rm-goodnight-v2-thumb.jpg",
+    "label": "晚安",
+    "mood": "晚安",
+    "intents": [
+      "goodnight"
+    ],
+    "keywords": [
+      "晚安",
+      "休息",
+      "明天见",
+      "睡吧",
+      "早点睡"
+    ],
+    "origin": "generated",
+    "style_references": [
+      "sticker-02.jpg",
+      "sticker-05.jpg"
+    ],
+    "blush": false,
+    "revision": "20261027-no-blush"
+  },
+  {
+    "id": 104,
+    "file": "assets/sticker-rm-leisure-v2.png",
+    "thumb": "assets/sticker-rm-leisure-v2-thumb.jpg",
+    "label": "悠闲（无腮红）",
+    "mood": "悠闲",
+    "intents": [
+      "leisure"
+    ],
+    "keywords": [
+      "悠闲",
+      "休息",
+      "喝茶",
+      "茶点",
+      "放松",
+      "清茶",
+      "糕点",
+      "播放"
+    ],
+    "origin": "generated-edit",
+    "style_references": [
+      "sticker-02.jpg"
+    ],
+    "blush": false,
+    "revision": "20261027-no-blush"
   }
 ]

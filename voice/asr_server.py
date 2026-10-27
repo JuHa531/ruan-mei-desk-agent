@@ -29,6 +29,8 @@ import sys
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+sys.path.insert(0,os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'app'))
+from local_security import LocalRequestHandler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FFMPEG = r"G:\ai\ffmpeg\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe"
@@ -55,12 +57,13 @@ def get_model():
 
 def to_wav16k(data, src_format):
     """转成 16k 单声道 wav；本来就是 wav 就直接落盘。"""
-    suffix = "." + (src_format or "webm")
+    src_format = (src_format or "webm").lower()
+    if src_format not in ("wav", "webm", "ogg", "mp3", "m4a", "mp4", "flac", "aac"):
+        raise ValueError("不支持的音频格式")
+    suffix = "." + src_format
     fd, src = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
-    if (src_format or "").lower() == "wav":
-        return src
     dst = src + ".16k.wav"
     try:
         subprocess.run([FFMPEG, "-y", "-v", "error", "-i", src,
@@ -68,6 +71,12 @@ def to_wav16k(data, src_format):
                        capture_output=True, timeout=120, check=True,
                        creationflags=CREATE_NO_WINDOW)
         return dst
+    except Exception:
+        try:
+            os.remove(dst)
+        except OSError:
+            pass
+        raise
     finally:
         try:
             os.remove(src)
@@ -84,14 +93,13 @@ def transcribe(data, src_format=None):
         text = re.sub(r"<\|[^|]*\|>", "", text).strip()   # 去掉 <|zh|><|NEUTRAL|> 这类标签
         return text
     finally:
-        if path.endswith("16k.wav"):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(LocalRequestHandler):
     server_version = "RuanMeiASR/1.0"
 
     def log_message(self, fmt, *a):
