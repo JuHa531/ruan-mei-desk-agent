@@ -897,6 +897,11 @@
     body.ruanmei-theme.rail-open .rail-toolbar{padding-top:42px}
   }
 </style>
+<style>
+#petPanel{width:min(440px,calc(100vw - 40px));padding:24px;border:1px solid #56776c;border-radius:18px;background:#10251f;color:#e3eee5;box-shadow:0 20px 65px #0008;}
+#petPanel::backdrop{background:#0006;}#petPanel h2{font-size:18px;margin:0;}#petPanel button{white-space:nowrap;}#petPanel input[type=range]{width:100%;accent-color:#8db5a0;margin:14px 0;}
+.pet-panel-heading,.pet-panel-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}.pet-panel-heading{justify-content:space-between;}.pet-panel-hint{color:#a4bbb0;line-height:1.7;font-size:12px;margin:14px 0;}#petModePercent{width:85px;padding:8px;border-radius:8px;border:1px solid #456858;background:#0b1d17;color:inherit;}
+</style>
 </head>
 <body class="ruanmei-theme">
 <div id="dragbar" class="pywebview-drag-region" title="拖动窗口"></div>
@@ -958,11 +963,21 @@
       <span class="sp">
         <button id="voice" class="on" title="每条回复自动朗读；语气会根据内容自动选择。关掉就只在你点「重播」时出声">🔊 自动朗读</button>
         <button id="skin">🎨 外观</button>
+        <button id="petMode" title="内置桌宠：开关、大小和动作设置">桌宠</button>
         <button id="railToggle" aria-controls="rail" aria-expanded="true" title="收起右侧栏">侧栏 ›</button>
       </span>
       <span id="sayState" class="saystate" role="status" aria-live="polite"></span>
     </header>
 
+    <dialog id="petPanel" aria-labelledby="petPanelTitle">
+      <div class="pet-panel-heading"><h2 id="petPanelTitle">阮梅 · 桌宠模式</h2><button id="petPanelClose" aria-label="关闭桌宠面板">×</button></div>
+      <p id="petModeStatus" role="status">正在读取…</p>
+      <p class="pet-panel-hint">桌宠由梅梅统一管理；对话、语音和记忆沿用当前梅梅。开启后可最小化主窗口。</p>
+      <div class="pet-panel-row"><button id="petModeToggle">启用桌宠</button><button id="petModeSettings">动作与语音设置</button></div>
+      <label for="petModeScale">桌宠大小</label>
+      <input id="petModeScale" type="range" min="25" max="200" step="1" value="100" aria-label="桌宠大小">
+      <form id="petModeSizeForm" class="pet-panel-row"><input id="petModePercent" type="number" min="1" max="1000" value="100" aria-label="桌宠大小百分比"><span>%</span><button type="submit">应用大小</button><button id="petModeReset" type="button">恢复 100%</button></form>
+    </dialog>
     <div id="log"></div>
 
     <footer>
@@ -1972,6 +1987,17 @@ function takeChunk(force){
   if (!first && cut < SP_MINLEN && s.length < SP_HARD) return null;
   // 别切在代码块中间，否则前半截的 ``` 落到下一块，清理逻辑认不出整块
   if (!force && fenceOdd(s.slice(0, cut)) && s.length < SP_HARD) return null;
+  // Never synthesize two halves of an English word as separate utterances.
+  if (/[A-Za-z0-9]/.test(s[cut - 1] || '') && /[A-Za-z0-9]/.test(s[cut] || '')) {
+    const start = s.slice(0, cut).search(/[A-Za-z0-9'’-]+$/);
+    if (start >= (first ? 12 : 4)) cut = start;
+    else {
+      const tail = s.slice(cut).match(/^[A-Za-z0-9'’-]+/);
+      const end = cut + (tail ? tail[0].length : 0);
+      if (end === s.length && !force) return null;
+      cut = end;
+    }
+  }
   const chunk = s.slice(0, cut);
   sp.buf = s.slice(cut);
   sp.lastLen = chunk.trim().length;
@@ -2858,6 +2884,30 @@ function winCtl(name){
     api[name]();
   } catch (e) {}
 }
+let petModeBusy=false,petScaleTimer=0;
+function renderPetMode(state){
+ $('petModeStatus').textContent=state.error||(state.enabled?(state.ready?'桌宠已开启':'正在准备桌宠…'):'桌宠已收起');
+ $('petModeToggle').textContent=state.enabled?'收起桌宠':'启用桌宠';
+ $('petMode').classList.toggle('on',!!state.enabled);
+ if(document.activeElement!==$('petModeScale'))$('petModeScale').value=Math.max(25,Math.min(200,state.scale*100||100));
+ if(document.activeElement!==$('petModePercent'))$('petModePercent').value=Math.round(state.scale*100||100);
+}
+async function petModeCall(method,value){
+ const api=window.pywebview?.api;
+ if(!api?.[method]){$('petModeStatus').textContent='请从桌面「梅梅」打开此功能。';return;}
+ if(petModeBusy)return;petModeBusy=true;
+ try{renderPetMode(await api[method](...(value===undefined?[]:[value])));}catch(error){$('petModeStatus').textContent=error.message||'桌宠暂时未能启动';}
+ finally{petModeBusy=false;}
+}
+$('petMode').onclick=()=>{$('petPanel').showModal();void petModeCall('pet_status');};
+$('petPanelClose').onclick=()=>$('petPanel').close();
+$('petModeToggle').onclick=()=>void petModeCall('pet_toggle');
+$('petModeSettings').onclick=()=>void petModeCall('pet_settings');
+$('petModeSizeForm').onsubmit=event=>{event.preventDefault();void petModeCall('pet_resize',$('petModePercent').valueAsNumber);};
+$('petModeReset').onclick=()=>void petModeCall('pet_resize',100);
+$('petModeScale').oninput=()=>{const value=$('petModeScale').valueAsNumber;$('petModePercent').value=value;clearTimeout(petScaleTimer);petScaleTimer=setTimeout(()=>void petModeCall('pet_resize',value),80);};
+window.addEventListener('pywebviewready',()=>void petModeCall('pet_status'));
+setInterval(()=>{if($('petPanel').open)void petModeCall('pet_status');},1200);
 if ($('winMin')) $('winMin').onclick = () => winCtl('minimize');
 if ($('winMax')) $('winMax').onclick = () => winCtl('toggle_max');
 if ($('winClose')) $('winClose').onclick = () => winCtl('close');

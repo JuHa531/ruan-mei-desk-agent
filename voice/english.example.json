@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "python": "D:/ai/envs/meimei-english/Scripts/python.exe",
+  "model_dir": "G:/ai/voice/models/Qwen3-TTS-12Hz-0.6B-Base",
+  "gptsovits_root": "G:/ai/GPT-SoVITS/GPT-SoVITS-main",
+  "acoustic_weights": "GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth",
+  "nltk_data": "D:/ai/envs/tts/nltk_data",
+  "reference": "G:/ai/voice/ref/ruanmei_warm.wav",
+  "reference_text": "唇齿最为敏感，糕点要评得上筹，只要一小口的机会。我偏爱鲜果、花木等时令原材。",
+  "chinese_base_speed": 0.84,
+  "you_profile": "u1",
+  "timeout_seconds": 180,
+  "idle_seconds": 45
+}

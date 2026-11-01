@@ -1,0 +1,647 @@
+// MeiMei-owned transparent rendering component.
+'use strict';
+const { app, BrowserWindow, Menu, Tray, nativeImage, screen, ipcMain, globalShortcut, session, powerMonitor, clipboard } = require('electron');
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { spawn } = require('node:child_process');
+const { DEFAULT_SETTINGS, EXPRESSION_KEYS, SKIN_KEYS, POSE_KEYS, sanitizeAppearance, sanitizeSettings, freeBounds, restoreBounds, recoverBounds, actionForKey, isLocalResource } = require('./host-policy.cjs');
+const { createTrayImage, createAppImage } = require('./tray-icon.cjs');
+const {createDesktopPointer,POINTER_INTERVAL_MS,DRAG_INTERVAL_MS}=require('./desktop-pointer.cjs');
+const {createDragLifecycle}=require('./drag-lifecycle.cjs');
+const {createTopmostController}=require('./window-layer.cjs');
+const {createWindowShape}=require('./window-shape.cjs');
+const {virtualBounds,planViewport,viewportSnapshot,zoomAt,zoomFromSteps,sanitizeCharacterRegion,projectHitRegion}=require('./pet-viewport.cjs');
+const {trayTemplate}=require('./tray-menu.cjs');
+const {createViewportChannel}=require('./viewport-channel.cjs');
+const {createTypedKeyListener}=require('./typed-key-listener.cjs');
+const {createSettingsWindow}=require('./settings-window.cjs');
+const {settingsAction,isSettingsSender}=require('./settings-policy.cjs');
+const {createVoiceController}=require('./voice-controller.cjs');
+const {createCursorTrail}=require('./cursor-trail.cjs');
+const {migrateSampleProfile}=require('./profile-migration.cjs');
+const {createChatService}=require('./chat-service.cjs');
+const {createChatWindow}=require('./chat-window.cjs');
+const {registerChatIpc}=require('./chat-ipc.cjs');
+const {createChatSpeech,getChatSpeechBlockReason}=require('./chat-speech.cjs');
+const {createMeimeiSetup,meimeiFetch,toolkitRoot,ensureMeimei,openMeimei}=require('./meimei-bridge.cjs');
+const createModelSetup=options=>createMeimeiSetup(options,'chat');
+const {registerModelSetupIpc}=require('./model-setup-ipc.cjs');
+const createVoiceSetup=options=>createMeimeiSetup(options,'voice');
+const {createFirstRunSetup}=require('./first-run-setup.cjs');
+
+const root = path.resolve(__dirname, '..');
+const rendererUrl = pathToFileURL(path.join(root, 'renderer', 'index.html')).href;
+const smokeNativeHotkeys = process.argv.includes('--smoke-native-hotkeys');
+const isVoiceSmoke = process.argv.includes('--voice-smoke-test');
+const isInteractionSmoke = process.argv.includes('--interaction-smoke-test');
+const isChatSmoke = process.argv.includes('--chat-smoke-test');
+const isPortableRelaunchSmoke = process.argv.includes('--portable-relaunch-smoke-test');
+const isMeimeiCheck=process.argv.includes('--meimei-check');
+const isManaged=process.argv.includes('--meimei-managed');
+const ownerPid=Number(process.argv[process.argv.indexOf('--owner-pid')+1]);
+const ownerPipe=process.argv[process.argv.indexOf('--owner-pipe')+1];
+function ownerEvent(type,extra={}){if(isManaged)process.stdout.write('MEIMEI_PET_EVENT:'+JSON.stringify({type,...extra})+'\n');}
+function openConversation(){if(isManaged){ownerEvent('chat');return true;}return chatWindow.open();}
+function openPetSettings(){return settingsWindow.open().then(panel=>{if(isManaged&&panel&&!panel.isDestroyed()){panel.setTitle('梅梅 · 桌宠设置');ownerEvent('settings-opened');}return panel;}).catch(error=>{if(!quitting)console.error('Pet settings:',error.message);return null;});}
+function keepSettingsAbovePet(){const panel=settingsWindow?.getWindow();if(!isSmokeTest&&panel&&!panel.isDestroyed()&&panel.isVisible()&&!panel.isMinimized())panel.moveTop();}
+async function reportStartupPerformance(){
+  if(!isManaged||!pet||pet.isDestroyed())return;
+  try{
+    const measured=await pet.webContents.executeJavaScript(`new Promise(resolve=>{
+      if(!window.ruanmeiPreview){resolve({ready:false});return;}
+      const c=document.createElement('canvas'),gl=c.getContext('webgl'),ext=gl?.getExtension('WEBGL_debug_renderer_info'),renderer=ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):null;
+      let first,last,initial,frames=0;function sample(now){first??=now;initial??=window.ruanmeiPreview.snapshot().time;last=now;frames++;
+      if(now-first<1500)requestAnimationFrame(sample);else resolve({ready:true,fps:(frames-1)*1000/(last-first),clockRatio:(window.ruanmeiPreview.snapshot().time-initial)/((last-first)/1000),renderer});}requestAnimationFrame(sample);
+    })`);
+    if(!quitting)ownerEvent('performance',{...measured,features:app.getGPUFeatureStatus()});
+  }catch(error){if(!quitting)console.error('Pet performance sample:',error.message);}
+}
+const isSmokeTest = process.argv.includes('--smoke-test') || smokeNativeHotkeys || isVoiceSmoke || isInteractionSmoke || isChatSmoke || isPortableRelaunchSmoke || isMeimeiCheck;
+const portableRelaunchInstances = [];
+if (isSmokeTest) app.commandLine.appendSwitch('mute-audio');
+const voiceTestHooks = isSmokeTest ? {} : undefined;
+// Keep production preferences across upgrades; smoke tests use an isolated profile.
+app.setName('梅梅桌宠');
+app.setAppUserModelId(isManaged?'io.juha.meimei':'io.juha.meimei.desktop-pet');
+app.setPath('userData', isSmokeTest
+  ? path.join(app.getPath('temp'), isPortableRelaunchSmoke ? 'ruanmei-pet-portable-relaunch-smoke' : isChatSmoke ? 'ruanmei-pet-chat-smoke' : isVoiceSmoke ? 'ruanmei-pet-voice-smoke' : isInteractionSmoke ? 'ruanmei-pet-interaction-smoke' : 'ruanmei-pet-host-smoke')
+  : isManaged?path.join(toolkitRoot(),'app','desktop-profile','pet'):path.join(app.getPath('appData'), 'MeiMei Desktop Pet'));
+let voices, cursorTrail, chat, chatWindow, chatSpeech, chatSpeechTestHooks, modelSetup, voiceSetup, firstRunSetup;
+let lastChatSettings = null;
+let pet, tray, settingsWindow, settingsFile, pointerTimer, saveTimer, desktopPointer, dragLifecycle, topmost, windowShape, legacyProcess, typingListener;
+let preferences = { ...DEFAULT_SETTINGS };
+let appearance = sanitizeAppearance();
+let savedPosition = null;
+let characterBounds=null,viewport=null,logicalHitRegion=null,logicalHitRevision=0,projectedHitKey=null;
+let lastNativeTargetKey=null;
+const viewportChannel=createViewportChannel(payload=>send('pet:viewport',payload));
+let quitting = false;
+const hotkeys = { legacy: { active: false, error: null }, alternate: { active: false, failed: [] }, typing: { active: false, error: null }, recovery: false };
+
+function state() { return { settings: { ...preferences }, appearance: { ...appearance }, hotkeys: structuredClone(hotkeys), viewport:viewport?{...viewport}:null }; }
+function send(channel, data) {
+  if (pet && !pet.isDestroyed() && !pet.webContents.isDestroyed()) pet.webContents.send(channel, data);
+}
+function publishSettings() { const snapshot=state();send('pet:settings',snapshot);settingsWindow?.publish(snapshot);ownerEvent('state',{scale:preferences.scale}); }
+function chatState() { return { ...chat.getState(), speech: chatSpeech?.getState() ?? { status: 'idle', error: null } }; }
+function publishChat() {
+  if (!chat) return;
+  const snapshot = chatState();
+  chatWindow?.publish(snapshot);
+  const panel = settingsWindow?.getWindow();
+  if (panel && !panel.webContents.isDestroyed()) panel.webContents.send('settings:chat-state', snapshot);
+}
+function action(typeOrAction) { send('pet:action', typeof typeOrAction === 'string' ? { type: typeOrAction } : typeOrAction); }
+function pollPointer(dragging=false) {
+  clearInterval(pointerTimer);
+  if(quitting||!pet||pet.isDestroyed())return;
+  // Capture turns between display frames; the trail still batches IPC at 16ms.
+  const interval=dragging?DRAG_INTERVAL_MS:preferences.cursorTrailEnabled?8:POINTER_INTERVAL_MS;
+  pointerTimer=setInterval(()=>{
+    if(pet&&!pet.isDestroyed()) {
+      const point=screen.getCursorScreenPoint();
+      desktopPointer.sample(point);
+      if(!isSmokeTest)cursorTrail?.sample({...point,sampledAt:Date.now()});
+    }
+  },interval);
+}
+function placePet(position) {
+  // Keep the configured DIP size. Recycling getBounds() through setPosition()
+  // can progressively enlarge a frameless window at fractional Windows DPI.
+  characterBounds=virtualBounds(position,preferences.scale);
+  const planned=planViewport(characterBounds,screen.getAllDisplays());
+  const target=freeBounds(planned.native);
+  const to=screen.getDisplayMatching(target),nativeKey=JSON.stringify([target,to.id,to.scaleFactor]);
+  if(nativeKey!==lastNativeTargetKey){
+    pet.setBounds(target,false);
+    const actual=pet.getBounds(),from=screen.getDisplayMatching(actual);
+    if(from.id!==to.id&&Math.abs(from.scaleFactor-to.scaleFactor)>.01
+      &&(Math.abs(actual.x-target.x)>2||Math.abs(actual.y-target.y)>2)){
+      // Electron can retain the previous monitor's DPI conversion at a seam.
+      pet.setBounds(freeBounds({...target,x:target.x+2*(target.x-actual.x),y:target.y+2*(target.y-actual.y)}),false);
+      pet.setBounds(target,false);
+    }
+    lastNativeTargetKey=nativeKey;
+  }
+  const content=pet.getContentBounds();
+  const previous=viewport;
+  viewport=viewportSnapshot(characterBounds,content,planned.clipped);
+  if(!previous||['width','height','characterX','characterY','characterWidth','characterHeight','clipped'].some(key=>previous[key]!==viewport[key]))viewportChannel.publish(viewport);
+  applyHitRegion();
+  voices?.reposition();
+}
+let saveRevision=0;
+function saveSettings() {
+  clearTimeout(saveTimer);
+  const revision=++saveRevision;
+  const commit=(attempt=0)=>{
+    if(revision!==saveRevision)return;
+    if (!settingsFile) return;
+    try {
+      const bounds = characterBounds ?? savedPosition;
+      const payload = { settings: preferences, position: bounds ? { x: bounds.x, y: bounds.y } : null };
+      fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+      fs.writeFileSync(settingsFile + '.tmp', JSON.stringify(payload, null, 2));
+      fs.renameSync(settingsFile + '.tmp', settingsFile);
+    } catch (error) {
+      if(['EPERM','EACCES','EBUSY'].includes(error.code)&&attempt<6){saveTimer=setTimeout(()=>commit(attempt+1),20*2**attempt);return;}
+      console.error('Could not save pet preferences:', error.message);
+    }
+  };
+  saveTimer=setTimeout(()=>commit(),120);
+}
+function loadSettings() {
+  try {
+    const stored = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    preferences = sanitizeSettings(stored.settings);
+    if (stored.position && Number.isFinite(stored.position.x) && Number.isFinite(stored.position.y)) savedPosition = stored.position;
+  } catch { /* First start or invalid preferences uses safe defaults. */ }
+  // A fresh launch is always interactive; the tray can re-enable click-through.
+  preferences.clickThrough = false;
+}
+function recover(resetScale = false) {
+  if (!pet || pet.isDestroyed()) return;
+  updateSettings({ clickThrough: false, ...(resetScale?{scale:1}:{}) });
+  dragLifecycle?.cancelDrag();
+  if (pet.isMinimized()) pet.restore();
+  placePet(recoverBounds(characterBounds??pet.getBounds(), screen.getAllDisplays(),bounds=>bounds));
+  if (!isSmokeTest) { pet.show(); pet.focus(); }
+}
+function updateSettings(patch, anchor) {
+  const previous = preferences;
+  preferences = sanitizeSettings(patch && typeof patch === 'object' ? patch : {}, preferences);
+  if (pet && !pet.isDestroyed()) {
+    // Store the chosen taskbar order before enabling topmost, including reloads.
+    topmost?.setTaskbarInFront(preferences.taskbarInFront);
+    topmost?.setEnabled(preferences.alwaysOnTop);
+    if (preferences.clickThrough) dragLifecycle?.endDrag();
+    pet.setIgnoreMouseEvents(preferences.clickThrough, { forward: true });
+    if (preferences.scale !== previous.scale) {
+      const old = characterBounds??pet.getBounds();
+      const {bounds}=zoomAt(old,previous.scale,preferences.scale,anchor);
+      dragLifecycle?.cancelDrag();
+      placePet(bounds);
+    }
+  }
+  if (preferences.legacyHotkeys !== previous.legacyHotkeys) configureLegacyHotkeys();
+  if (preferences.alternateHotkeys !== previous.alternateHotkeys) configureAlternateHotkeys();
+  if (preferences.keyDisplay !== previous.keyDisplay) configureTypedKeys();
+  if (preferences.interactionsEnabled !== previous.interactionsEnabled) voices?.preferencesChanged();
+  if (preferences.cursorTrailEnabled !== previous.cursorTrailEnabled) {
+    cursorTrail?.setEnabled(preferences.cursorTrailEnabled);
+    if (desktopPointer) pollPointer(desktopPointer.dragging);
+  }
+  if (preferences.cursorTrailStyle !== previous.cursorTrailStyle) cursorTrail?.setStyle(preferences.cursorTrailStyle);
+  if (preferences.cursorTrailDuration !== previous.cursorTrailDuration) cursorTrail?.setDuration(preferences.cursorTrailDuration);
+  saveSettings();
+  publishSettings();
+  voices?.reposition();
+  return state();
+}
+
+function resizePet(scale) {
+  const bounds=viewport?.clipped?pet?.getContentBounds():characterBounds;
+  return updateSettings({scale},bounds?{x:bounds.x+bounds.width/2,y:bounds.y+bounds.height/2}:null);
+}
+function zoomPet(input) {
+  if(!input||!Number.isFinite(input.steps)||!pet||pet.isDestroyed())return state();
+  const bounds=pet.getContentBounds();
+  const anchor=Number.isFinite(input.anchorX)&&Number.isFinite(input.anchorY)
+    ?{x:bounds.x+input.anchorX,y:bounds.y+input.anchorY}:screen.getCursorScreenPoint();
+  const next=zoomFromSteps(characterBounds??bounds,preferences.scale,input.steps,anchor);
+  return updateSettings({scale:next.scale},anchor);
+}
+
+function applyHitRegion() {
+  if(!logicalHitRegion||!viewport)return windowShape?.refresh();
+  const key=JSON.stringify([logicalHitRevision,viewport.width,viewport.height,viewport.characterX,viewport.characterY,viewport.characterWidth,viewport.characterHeight]);
+  if(projectedHitKey===key)return windowShape?.refresh();
+  const applied=windowShape?.update(projectHitRegion(logicalHitRegion,viewport))??false;
+  if(applied)projectedHitKey=key;
+  return applied;
+}
+
+function configureTypedKeys() {
+  if (!typingListener) {
+    let script = path.join(__dirname, 'typed-keys.ps1');
+    if (app.isPackaged) script = script.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+    typingListener = createTypedKeyListener({
+      spawn, script,
+      onCharacter: character => { if (preferences.keyDisplay && !quitting) send('pet:typed-key', character); },
+      onStatus: value => { hotkeys.typing = value; if (!quitting) publishSettings(); },
+    });
+  }
+  typingListener.start(preferences.keyDisplay);
+}
+
+function configureLegacyHotkeys() {
+  const previousProcess = legacyProcess;
+  legacyProcess = null;
+  if (previousProcess) previousProcess.kill();
+  hotkeys.legacy = { active: false, error: null };
+  if (!preferences.legacyHotkeys) { publishSettings(); return; }
+  if (process.platform !== 'win32') {
+    hotkeys.legacy.error = '原版 Space 组合键仅支持 Windows；可启用备用快捷键。';
+    publishSettings(); return;
+  }
+  let script = path.join(__dirname, 'legacy-hotkeys.ps1');
+  if (app.isPackaged) script = script.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
+  const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-ParentProcessId', String(process.pid)], {
+    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  legacyProcess = child;
+  let pending = '';
+  let failure = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (text) => {
+    if (legacyProcess !== child) return;
+    pending += text;
+    const lines = pending.split(/\r?\n/); pending = lines.pop();
+    for (const line of lines) {
+      if (line.trim() === 'READY') {
+        hotkeys.legacy = { active: true, error: null }; publishSettings(); continue;
+      }
+      const mapped = actionForKey(line.trim());
+      if (mapped) action(mapped);
+    }
+    if (pending.length > 1024) pending = '';
+  });
+  child.stderr.on('data', (text) => { failure = (failure + text).slice(-2000); });
+  child.on('error', () => {
+    if (legacyProcess !== child) return;
+    hotkeys.legacy = { active: false, error: '无法启动原版快捷键监听；可启用备用快捷键。' }; publishSettings();
+  });
+  child.on('exit', (code) => {
+    if (legacyProcess !== child || quitting) return;
+    legacyProcess = null;
+    hotkeys.legacy = { active: false, error: `原版快捷键监听已停止（${code ?? 'unknown'}）${failure ? '，请启用备用快捷键。' : '。'}` };
+    publishSettings();
+  });
+}
+
+const alternateBindings = [];
+function configureAlternateHotkeys() {
+  for (const binding of alternateBindings.splice(0)) globalShortcut.unregister(binding);
+  hotkeys.alternate = { active: false, failed: [] };
+  if (!preferences.alternateHotkeys) return;
+  for (const key of [...Object.keys(EXPRESSION_KEYS), ...Object.keys(SKIN_KEYS), ...Object.keys(POSE_KEYS), 'Backspace']) {
+    const accelerator = `CommandOrControl+Alt+${key}`;
+    try {
+      if (globalShortcut.register(accelerator, () => action(actionForKey(key)))) alternateBindings.push(accelerator);
+      else hotkeys.alternate.failed.push(accelerator);
+    } catch { hotkeys.alternate.failed.push(accelerator); }
+  }
+  hotkeys.alternate.active = alternateBindings.length > 0;
+}
+
+function buildMenu() {
+  if(isManaged)return Menu.buildFromTemplate([
+    {label:'回到梅梅对话',click:()=>ownerEvent('chat')},
+    {label:'桌宠设置',click:openPetSettings},
+    {type:'separator'},
+    {label:'收起桌宠',click:()=>ownerEvent('hide')},
+  ]);
+  return Menu.buildFromTemplate([{label:'打开梅梅完整界面',click:openMeimei},{type:'separator'},...trayTemplate({
+    openSettings:()=>settingsWindow.open().catch(error=>console.error('Could not open settings:',error)),
+    openChat:()=>chatWindow.open().catch(error=>console.error('Could not open chat:',error)),
+    quit:()=>{ chatSpeech?.release(); return voices?voices.requestQuit():app.quit(); },
+  })]);
+}
+
+function registerIpc() {
+  const trustedChat=event=>isSettingsSender(event,chatWindow?.getWindow(),chatWindow?.url);
+  ipcMain.handle('chat:open-meimei',event=>trustedChat(event)?openMeimei():false);
+  ipcMain.handle('chat:transcribe',async(event,value)=>{
+    if(!trustedChat(event)||!ArrayBuffer.isView(value)||value.byteLength>16*1024*1024)throw new Error('录音无效或过大。');
+    const response=await fetch('http://127.0.0.1:7788/api/asr?format=webm',{method:'POST',
+      headers:{'Content-Type':'application/octet-stream'},body:Buffer.from(value.buffer,value.byteOffset,value.byteLength),signal:AbortSignal.timeout(120000)});
+    if(!response.ok)throw new Error('语音识别暂不可用，请检查梅梅服务。');
+    return response.json();
+  });
+  const trusted = (event) => pet && !pet.isDestroyed() && event.sender === pet.webContents && event.senderFrame === pet.webContents.mainFrame;
+  ipcMain.handle('pet:get-state', (event) => trusted(event) ? state() : null);
+  ipcMain.handle('pet:set-settings', (event, patch) => trusted(event) ? updateSettings(patch) : null);
+  ipcMain.handle('pet:zoom-by', (event, input) => trusted(event) ? zoomPet(input) : null);
+  ipcMain.handle('pet:interact', (event, kind) => trusted(event) ? voices?.interact(kind) : false);
+  ipcMain.handle('pet:set-hit-region', (event, region) => {
+    if(!trusted(event))return false;
+    if(region?.space==='character'){
+      const clean=sanitizeCharacterRegion(region);
+      if(!clean)return false;
+      logicalHitRegion=clean;logicalHitRevision++;return applyHitRegion();
+    }
+    logicalHitRegion=null;return windowShape?.update(region)??false;
+  });
+  ipcMain.on('pet:set-appearance', (event, value) => {
+    if (trusted(event)) { appearance = sanitizeAppearance(value);settingsWindow?.publish(state()); }
+  });
+  ipcMain.on('pet:pointer-received', (event, sequence) => { if (trusted(event) && Number.isSafeInteger(sequence)) desktopPointer?.acknowledge(sequence); });
+  ipcMain.on('pet:viewport-received',(event,sequence)=>{
+    if(trusted(event)&&Number.isSafeInteger(sequence))viewportChannel.acknowledge(sequence);
+  });
+  ipcMain.on('pet:drag-start', (event) => { if (trusted(event) && (preferences.clickThrough||!dragLifecycle?.startDrag())) send('pet:drag-state',false); });
+  ipcMain.on('pet:drag-end', (event) => { if (trusted(event)) dragLifecycle?.endDrag(); });
+  ipcMain.on('pet:quit', (event) => { if (trusted(event)) voices ? voices.requestQuit() : app.quit(); });
+  const trustedSettings = event => isSettingsSender(event, settingsWindow?.getWindow(), settingsWindow?.url);
+  ipcMain.handle('settings:voice-get', event => trustedSettings(event) ? voices?.getState() : null);
+  ipcMain.handle('settings:voice-settings', (event, patch) => trustedSettings(event) ? voices?.setSettings(patch) : null);
+  ipcMain.handle('settings:voice-stop', event => trustedSettings(event) ? voices?.stopVoice() : null);
+  ipcMain.on('settings:window-control', (event, value) => {
+    if (trustedSettings(event)) settingsWindow.windowControl(value);
+  });
+  ipcMain.handle('settings:get-state', event => trustedSettings(event) ? state() : null);
+  ipcMain.handle('settings:app-context',event=>trustedSettings(event)?{managed:isManaged}:null);
+  ipcMain.handle('settings:get-window-state', event => trustedSettings(event) ? settingsWindow.getWindowState() : null);
+  ipcMain.handle('settings:set-settings', (event, patch) => trustedSettings(event) ? updateSettings(patch) : null);
+  ipcMain.handle('settings:action', (event, value) => {
+    const next = settingsAction(value);
+    if (!trustedSettings(event) || !next || !pet || pet.isDestroyed()) return false;
+    action(next);
+    return true;
+  });
+  ipcMain.handle('settings:resize', (event, scale) => trustedSettings(event) && Number.isFinite(scale) ? resizePet(scale) : null);
+  ipcMain.handle('settings:recover', (event, resetScale) => {
+    if (!trustedSettings(event) || typeof resetScale !== 'boolean') return null;
+    recover(resetScale);
+    return state();
+  });
+  registerChatIpc({ ipcMain, chat, chatWindow, settingsWindow, speech: chatSpeech, clipboard, getState: chatState,openChat:openConversation });
+  registerModelSetupIpc({ ipcMain, settingsWindow, setup: modelSetup, voiceSetup });
+}
+
+async function createWindow() {
+  const primary = screen.getPrimaryDisplay().workArea;
+  const size = virtualBounds({},preferences.scale);
+  const desired = { ...size, x: savedPosition?.x ?? primary.x + primary.width - size.width - 24, y: savedPosition?.y ?? primary.y + primary.height - size.height - 12 };
+  characterBounds=restoreBounds(desired, screen.getAllDisplays(),bounds=>bounds);
+  const planned=planViewport(characterBounds,screen.getAllDisplays());
+  pet = new BrowserWindow({
+    ...planned.native,
+    show: false, frame: false, thickFrame: false, transparent: true, backgroundColor: '#00000000',
+    resizable: false, maximizable: false, fullscreenable: false,
+    alwaysOnTop: preferences.alwaysOnTop, skipTaskbar: true, hasShadow: false,
+    title: '阮梅桌宠', icon: createAppImage(nativeImage),
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false, devTools: !app.isPackaged },
+  });
+  topmost=createTopmostController(pet,{enabled:preferences.alwaysOnTop,taskbarInFront:preferences.taskbarInFront,
+    onRaised:keepSettingsAbovePet,onLayerRestored:()=>{voices?.reposition();keepSettingsAbovePet();},
+    onError:error=>console.error('Could not update pet window layer:',error.message)});
+  windowShape=createWindowShape(pet,{screen});
+  viewport=viewportSnapshot(characterBounds,pet.getContentBounds(),planned.clipped);
+  desktopPointer=createDesktopPointer({
+    readCursor:()=>screen.getCursorScreenPoint(),getBounds:()=>characterBounds??pet.getBounds(),
+    constrainBounds:bounds=>bounds,
+    setPosition:(x,y)=>placePet({x,y}),
+    sendPointer:payload=>{
+      const bounds=pet.getContentBounds(),localX=payload.x-bounds.x,localY=payload.y-bounds.y;
+      send('pet:pointer',{...payload,localX,localY,width:bounds.width,height:bounds.height,
+        inside:localX>=0&&localY>=0&&localX<bounds.width&&localY<bounds.height});
+    },onDragEnd:saveSettings,
+    onDragState:active=>{send('pet:drag-state',active);pollPointer(active);},
+  });
+  dragLifecycle=createDragLifecycle({window:pet,pointer:desktopPointer,readCursor:()=>screen.getCursorScreenPoint()});
+  pet.webContents.on('did-finish-load',()=>{desktopPointer?.reset();viewportChannel.reset();});
+  pet.setMenu(null);
+  pet.on('page-title-updated', event => event.preventDefault());
+  pet.on('query-session-end', () => { voices?.dispose();cursorTrail?.dispose(); });
+  pet.on('session-end', () => app.quit());
+  pet.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  pet.webContents.on('will-navigate', (event, url) => { if (url !== rendererUrl) event.preventDefault(); });
+  pet.webContents.on('will-attach-webview', (event) => event.preventDefault());
+  // The tray opens a separate settings window. Right-button input on
+  // the character belongs to the wheel-resize gesture in the renderer.
+  pet.on('move', () => { if(!desktopPointer?.dragging)saveSettings(); });
+  pet.on('resize', () => windowShape?.refresh());
+  pet.on('closed', () => { dragLifecycle?.dispose();windowShape?.dispose();topmost?.dispose();desktopPointer?.reset();pet = null; if (!quitting) app.quit(); });
+  pet.once('ready-to-show', () => { if (!isSmokeTest) pet.showInactive(); });
+  await pet.loadURL(rendererUrl);
+  pollPointer();
+  if(isMeimeiCheck){
+    const report=await require('./meimei-integration-check.cjs').check({pet,chat,chatWindow,chatSpeech,voices,ipcMain,root});
+    console.log(JSON.stringify({meimeiIntegration:report}));app.quit();return;
+  }
+  voices?.start();
+  if (isSmokeTest) {
+    await pet.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const deadline=Date.now()+15000;const timer=setInterval(()=>{if(document.documentElement.dataset.ready==='true'){clearInterval(timer);resolve(true)}else if(Date.now()>deadline){clearInterval(timer);reject(new Error('Renderer did not become ready'))}},50)})`);
+    if (isPortableRelaunchSmoke) {
+      const report = await require('./portable-relaunch-smoke.cjs').checkPortableRelaunchRuntime({
+        app, pet, chatWindow, settingsWindow, root, directory: app.getPath('userData'),
+        getSecondInstances: () => portableRelaunchInstances.slice(),
+      });
+      console.log(JSON.stringify(report));
+      app.quit(); return;
+    }
+    if (isVoiceSmoke) {
+      const report = await require('./voice-smoke.cjs').checkVoiceRuntime({ voices, voiceTestHooks, settingsWindow, pet, screen, placePet, root, ipcMain });
+      console.log(JSON.stringify({ voiceSmoke: 'ok', ...report }));
+      app.quit(); return;
+    }
+    if (isChatSmoke) {
+      const report = await require('./chat-smoke.cjs').checkChatRuntime({ chat, chatWindow, chatSpeech, chatSpeechTestHooks, settingsWindow, pet, root, buildMenu, directory: app.getPath('userData') });
+      console.log(JSON.stringify({ chatSmoke: 'ok', ...report }));
+      app.quit(); return;
+    }
+    if (isInteractionSmoke) {
+      const report = await require('./interaction-smoke.cjs').checkInteractionSettings({ pet, voices, voiceTestHooks, cursorTrail, settingsWindow,
+        screen, root, getState:state, updateSettings, settingsFile, buildMenu, action, ipcMain });
+      console.log(JSON.stringify({ interactionSmoke: 'ok', ...report }));
+      app.quit(); return;
+    }
+    if (smokeNativeHotkeys) {
+      const deadline = Date.now() + 10000;
+      while (!hotkeys.legacy.active && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+      if (!hotkeys.legacy.active) throw new Error('Passive hotkey listener did not become ready');
+      pet.show(); pet.focus();
+      const handle = pet.getNativeWindowHandle();
+      const nativeHandle = handle.length >= 8 ? handle.readBigUInt64LE().toString() : String(handle.readUInt32LE());
+      await new Promise((resolve, reject) => {
+        const injector = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts', 'smoke-hotkey-input.ps1'), '-ExpectedWindow', nativeHandle], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        let output = '';
+        const timeout = setTimeout(() => { injector.kill(); reject(new Error('Native input test timed out')); }, 10000);
+        injector.stderr.on('data', (chunk) => { output += chunk.toString(); });
+        injector.on('error', (error) => { clearTimeout(timeout); reject(error); });
+        injector.on('exit', (code) => { clearTimeout(timeout); if (code === 0) resolve(); else reject(new Error(`Native input test refused / failed: ${output}`)); });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const expression = await pet.webContents.executeJavaScript('window.ruanmeiPreview.snapshot().expression');
+      if (expression !== 'blush') throw new Error(`Native Space+1 did not toggle once: ${expression}`);
+    }
+    const renderer = await pet.webContents.executeJavaScript(`(async () => ({bridge:typeof window.ruanmeiDesktop, node:typeof window.require, title:document.title, rendering:window.ruanmeiPreview.rendering, state:await window.ruanmeiDesktop.getState()}))()`);
+    const webPreferences = pet.webContents.getLastWebPreferences();
+    if (!renderer.state?.settings || renderer.node !== 'undefined' || !webPreferences.sandbox || !webPreferences.contextIsolation || webPreferences.nodeIntegration) {
+      throw new Error('Desktop host isolation / preload smoke check failed');
+    }
+    if (renderer.rendering?.mode !== 'mesh') {
+      throw new Error('Desktop character mesh rendering smoke check failed');
+    }
+    const desktopChecks=smokeNativeHotkeys?null:require('./desktop-smoke.cjs').checkDesktopWindow({window:pet,getState:state,pointer:desktopPointer,topmost,place:placePet,displays:screen.getAllDisplays(),shape:windowShape,updateSettings});
+    if(desktopChecks)desktopChecks.zoom=await require('./zoom-smoke.cjs').checkDesktopZoom({window:pet,getState:state,resize:resizePet,place:placePet,pointer:desktopPointer,shape:windowShape});
+    if(desktopChecks)desktopChecks.settingsWindow=await require('./settings-window-smoke.cjs').checkSettingsWindow({window:pet,getState:state,settingsFile,buildMenu,settingsWindow,updateSettings,action,ipcMain});
+    console.log(JSON.stringify({ smoke: 'ok', nativeSpaceChord: smokeNativeHotkeys ? 'passed-on-own-foreground-window' : 'not-requested', renderer, desktopChecks, bounds: pet.getBounds(), security: { sandbox: webPreferences.sandbox, contextIsolation: webPreferences.contextIsolation, nodeIntegration: webPreferences.nodeIntegration } }));
+    app.quit();
+  }
+}
+
+const standaloneLaunch=app.isPackaged&&!isManaged&&!isSmokeTest;
+if(standaloneLaunch)openMeimei();
+const hasInstanceLock = standaloneLaunch?false:isPortableRelaunchSmoke
+  ? app.requestSingleInstanceLock({ runtimeDirectory: path.dirname(process.execPath) })
+  : app.requestSingleInstanceLock();
+if (!hasInstanceLock) app.quit();
+else {
+  app.on('second-instance', (_event, _argv, _workingDirectory, additionalData) => {
+    if (isPortableRelaunchSmoke) portableRelaunchInstances.push({ runtimeDirectory: additionalData?.runtimeDirectory });
+    recover();
+  });
+  app.whenReady().then(async () => {
+    if(!isManaged)ensureMeimei();
+    settingsFile = path.join(app.getPath('userData'), 'settings.json');
+    loadSettings();
+    const firstChatSetup = !isSmokeTest && app.isPackaged && !fs.existsSync(path.join(app.getPath('userData'), 'chat-state.json'));
+    firstRunSetup = createFirstRunSetup({ directory: app.getPath('userData'), firstRun: firstChatSetup, enabled: false });
+    const windowIcon = createAppImage(nativeImage);
+    settingsWindow=createSettingsWindow({BrowserWindow,screen,root,icon:windowIcon,isSmokeTest,isPackaged:app.isPackaged,getState:state});
+    chat = createChatService({ fetchImpl:meimeiFetch, directory: app.getPath('userData'), onChange: snapshot => {
+      if (lastChatSettings?.readAloud && !snapshot.settings.readAloud) chatSpeech?.release();
+      if (lastChatSettings && lastChatSettings.voiceProjectRoot !== snapshot.settings.voiceProjectRoot) { chatSpeech?.release(); chatSpeech?.clearCache(); }
+      const enable = !lastChatSettings?.readAloud && snapshot.settings.readAloud;
+      lastChatSettings = snapshot.settings;
+      if (enable) chatSpeech?.warmup();
+      publishChat();
+    }, onReplyCompleted: reply => {
+      if (chat.getState().activeConversationId === reply.conversationId) chatSpeech?.start(reply.text, { messageId: reply.messageId });
+    } });
+    lastChatSettings = chat.getState().settings;
+    modelSetup = createModelSetup({ userData: app.getPath('userData'), onChange: snapshot => {
+      firstRunSetup.update('chat', snapshot);
+      const panel = settingsWindow?.getWindow();
+      if (panel && !panel.webContents.isDestroyed()) panel.webContents.send('settings:model-setup-state', snapshot);
+    } });
+    voiceSetup = createVoiceSetup({ userData: app.getPath('userData'),
+      resourcesPath: app.isPackaged ? process.resourcesPath : path.join(root, 'build-resources', 'voice-bootstrap'),
+      assetDirectory: app.isPackaged ? process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath) : path.join(root, 'build-resources', 'voice-bootstrap'),
+      onChange: snapshot => {
+        firstRunSetup.update('voice', snapshot);
+        if (snapshot.phase === 'ready' && snapshot.ready) {
+          const current = chat.getState().settings.voiceProjectRoot;
+          if (current === toolkitRoot() || current === voiceSetup.getProjectRoot()) {
+            if (current !== voiceSetup.getProjectRoot()) chat.setSettings({ voiceProjectRoot: voiceSetup.getProjectRoot() });
+          }
+        }
+        const panel = settingsWindow?.getWindow();
+        if (panel && !panel.webContents.isDestroyed()) panel.webContents.send('settings:voice-setup-state', snapshot);
+      },
+    });
+    chatWindow = createChatWindow({ BrowserWindow, screen, root, icon:windowIcon, isSmokeTest, isPackaged: app.isPackaged, getState: chatState, onClosed: () => chatSpeech?.release() });
+    if (isChatSmoke) chatSpeechTestHooks = require('./chat-speech-smoke.cjs').createChatSpeechSmokeWorker();
+    chatSpeech = createChatSpeech({ root, ...(chatSpeechTestHooks ?? {}),
+      getProjectRoot: () => chat.getState().settings.voiceProjectRoot,
+      isEnabled: () => chat.getState().settings.readAloud === true && (!isSmokeTest || isChatSmoke),
+      isWindowOpen: () => !!chatWindow.getWindow(),
+      getBlockReason: manual => getChatSpeechBlockReason(voices?.getState(), { manual }),
+      volume: () => voices?.getState().settings.volume ?? .8,
+      sendAudio: packet => chatWindow.getWindow()?.webContents.send('chat:speech-audio', packet),
+      stopAudio: packet => chatWindow.getWindow()?.webContents.send('chat:speech-stop', packet),
+      claimAudio: value => voices?.setExternalSpeechBusy(value),
+      onChange: publishChat,
+    });
+    voices = createVoiceController({ BrowserWindow, screen, ipcMain, powerMonitor, root,
+      assetDirectory: path.join(root,'assets','voice'),
+      interactionAssetDirectory: path.join(root,'assets','interaction-voice'),
+      userData: app.getPath('userData'), getCharacterBounds: () => characterBounds,
+      getPreferences: () => preferences, isSmokeTest, isPackaged: app.isPackaged, quit: () => app.quit(), testHooks: voiceTestHooks,
+      publish: snapshot => {
+        const environment = snapshot.environment;
+        chatSpeech?.refreshPermission();
+        cursorTrail?.setBlocked(environment.locked || environment.suspended || environment.fullscreen || environment.monitorReady === false);
+        const panel = settingsWindow?.getWindow();
+        if (panel && !panel.webContents.isDestroyed()) panel.webContents.send('settings:voice-state', snapshot);
+      },
+    });
+    cursorTrail = createCursorTrail({ BrowserWindow, screen, root, isSmokeTest, isPackaged: app.isPackaged });
+    cursorTrail.setStyle(preferences.cursorTrailStyle);
+    cursorTrail.setDuration(preferences.cursorTrailDuration);
+    cursorTrail.setEnabled(preferences.cursorTrailEnabled);
+    const environment = voices.getState().environment;
+    cursorTrail.setBlocked(environment.locked || environment.suspended || environment.fullscreen || environment.monitorReady === false);
+    session.defaultSession.setPermissionRequestHandler((contents,permission,callback,details)=>callback(
+      permission==='media'&&contents===chatWindow?.getWindow()?.webContents&&details.mediaTypes?.length===1&&details.mediaTypes[0]==='audio'));
+    session.defaultSession.setPermissionCheckHandler((contents,permission,_origin,details)=>
+      permission==='media'&&contents===chatWindow?.getWindow()?.webContents&&details.mediaType==='audio');
+    session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+      callback({ cancel: !isLocalResource(details.url, root) && !voices?.allowsUrl(details.url) && !details.url.startsWith('data:') && !details.url.startsWith('blob:') });
+    });
+    registerIpc();
+    tray = new Tray(createTrayImage(nativeImage));
+    tray.setToolTip(isManaged?'梅梅 · 桌宠模式 · Ctrl+Alt+P 恢复操作':`阮梅桌宠 ${app.getVersion()} · Ctrl+Alt+P 恢复操作`);
+    tray.on('click', () => tray.popUpContextMenu(buildMenu()));
+    tray.on('right-click', () => tray.popUpContextMenu(buildMenu()));
+    hotkeys.recovery = globalShortcut.register('CommandOrControl+Alt+P', () => recover());
+    configureAlternateHotkeys();
+    configureLegacyHotkeys();
+    configureTypedKeys();
+    await createWindow();
+    if(isManaged){
+      if(!Number.isInteger(ownerPid)||ownerPid<=0||ownerPid!==process.ppid)throw new Error('Desktop mode must be owned by MeiMei.');
+      if(typeof ownerPipe!=='string'||!ownerPipe.startsWith('\\\\.\\pipe\\meimei-pet-'+ownerPid+'-'))throw new Error('Invalid owner channel.');
+      const commandServer=require('node:net').createServer(socket=>{
+      if(commandServer.connected){socket.destroy();return;}commandServer.connected=true;
+      let input='';socket.setEncoding('utf8');socket.on('data',chunk=>{
+        input+=chunk;if(input.length>65536){app.quit();return;}
+        let at;while((at=input.indexOf('\n'))>=0){const line=input.slice(0,at);input=input.slice(at+1);
+          try{const command=JSON.parse(line);
+            if(command.type==='quit')app.quit();
+            else if(command.type==='settings')openPetSettings();
+            else if(command.type==='recover')recover();
+            else if(command.type==='chat')ownerEvent('chat');
+            else if(command.type==='resize'&&Number.isFinite(command.scale))resizePet(command.scale);
+          }catch(error){console.error('Desktop command:',error.message);}
+        }
+      });
+      socket.on('end',()=>app.quit());socket.on('error',()=>app.quit());
+      });
+      commandServer.on('error',error=>{console.error(error);app.quit();});
+      commandServer.listen(ownerPipe,()=>{ownerEvent('ready');const timer=setTimeout(reportStartupPerformance,4000);timer.unref();});
+      const parentWatch=setInterval(()=>{try{process.kill(ownerPid,0);}catch{app.quit();}},1000);parentWatch.unref();
+    }
+    if (firstRunSetup.start({ chat: modelSetup, voice: voiceSetup, chatBaseUrl: chat.getState().settings.baseUrl })) {
+      const setupWindow = await settingsWindow.open();
+      await setupWindow?.webContents.executeJavaScript('document.querySelector("[data-tab=chat]")?.click(); true');
+    }
+    const constrainToScreen = () => { if (pet && !pet.isDestroyed()) { dragLifecycle?.cancelDrag();placePet(restoreBounds(characterBounds??pet.getBounds(),screen.getAllDisplays(),bounds=>bounds));topmost?.refresh(); } };
+    screen.on('display-removed', constrainToScreen);
+    screen.on('display-metrics-changed', constrainToScreen);
+  }).catch((error) => { console.error(error); app.exit(1); });
+}
+app.on('before-quit', () => {
+  quitting = true;
+  chatSpeech?.dispose();
+  modelSetup?.dispose();
+  voiceSetup?.dispose();
+  chat?.dispose();
+  chatWindow?.dispose();
+  voices?.dispose();
+  cursorTrail?.dispose();
+  settingsWindow?.dispose();
+  clearInterval(pointerTimer);
+  dragLifecycle?.dispose();
+  windowShape?.dispose();
+  topmost?.dispose();
+  desktopPointer?.reset();
+  clearTimeout(saveTimer);
+  if (pet && !pet.isDestroyed()) {
+    try {
+      const { x, y } = characterBounds??pet.getBounds();
+      fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+      fs.writeFileSync(settingsFile, JSON.stringify({ settings: preferences, position: { x, y } }, null, 2));
+    } catch { /* Shutdown must still release input listeners. */ }
+  }
+  if (legacyProcess) legacyProcess.kill();
+  legacyProcess = null;
+  typingListener?.stop();
+  globalShortcut.unregisterAll();
+  if (tray) tray.destroy();
+});
+app.on('window-all-closed', () => app.quit());

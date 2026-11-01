@@ -32,6 +32,7 @@ import sys
 import threading
 import time
 from local_security import trusted_desktop_origin
+from window_focus import focus_existing_window
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -60,33 +61,6 @@ def take_single_instance_lock():
         return False
     _lock_socket = s
     return True
-
-
-def focus_existing_window(title="梅梅"):
-    """把已经在跑的那个窗口拉到最前面（不用弹框打扰你）。"""
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        found = []
-        proto = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-
-        def cb(hwnd, _):
-            buf = ctypes.create_unicode_buffer(512)
-            user32.GetWindowTextW(hwnd, buf, 512)
-            if buf.value == title:
-                found.append(hwnd)
-            return True
-
-        user32.EnumWindows(proto(cb), 0)
-        for h in found:
-            user32.ShowWindow(h, 9)          # SW_RESTORE：最小化的也还原
-            user32.SetForegroundWindow(h)
-        return bool(found)
-    except Exception as e:
-        print("[启动] 想把你已有的窗口拉到前面，但没成功：%s" % e)
-        return False
 
 
 def apply_dark_titlebar(title="梅梅"):
@@ -311,6 +285,21 @@ def selftest(url):
 class WindowCtl:
     """给页面里的自定义标题栏按钮用：最小化 / 最大化还原 / 关闭。"""
 
+    def __init__(self, pet=None):
+        self._pet = pet
+
+    def pet_status(self):
+        return self._pet.status() if self._pet else {'enabled': False, 'available': False}
+
+    def pet_toggle(self):
+        return self._pet.toggle() if self._pet else self.pet_status()
+
+    def pet_settings(self):
+        return self._pet.settings() if self._pet else self.pet_status()
+
+    def pet_resize(self, percent):
+        return self._pet.resize(percent) if self._pet else self.pet_status()
+
     def _hwnd(self):
         return ctypes.windll.user32.FindWindowW(None, "梅梅")
 
@@ -328,6 +317,8 @@ class WindowCtl:
                 ctypes.windll.user32.ShowWindow(h, 3)  # SW_MAXIMIZE
 
     def close(self):
+        if self._pet:
+            self._pet.stop(remember=False)
         h = self._hwnd()
         if h:
             ctypes.windll.user32.PostMessageW(h, 0x0010, 0, 0)  # WM_CLOSE
@@ -421,17 +412,29 @@ def main():
 
     import webview
     install_permission_patch(opts.port)
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('io.juha.meimei')
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
     webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
     if opts.debug:
         webview.settings["REMOTE_DEBUGGING_PORT"] = 9223
 
+    from pet_controller import PetController
+    def pet_action(action):
+        focus_existing_window()
+        try:
+            window.evaluate_js("document.getElementById('inp')?.focus()")
+        except Exception:
+            pass
+    pet = PetController(ROOT, pet_action)
     window = webview.create_window(
         "梅梅", url, width=1280, height=860, min_size=(900, 620),
         background_color="#07100e", text_select=True,
         frameless=FRAMELESS, easy_drag=True, shadow=True,
-        js_api=WindowCtl(),
+        js_api=WindowCtl(pet),
     )
+    window.events.closed += lambda: pet.stop(remember=False)
+    if pet.preferences['enabled'] and not opts.selftest:
+        pet.start()
     print("[启动] 窗口开了：%s（内核 WebView2，不经过浏览器）" % url)
 
     storage = os.path.join(HERE, "desktop-profile")

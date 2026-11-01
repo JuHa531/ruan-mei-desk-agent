@@ -1,0 +1,82 @@
+{
+  "name": "meimei-desktop-pet",
+  "productName": "梅梅桌宠",
+  "version": "0.1.0",
+  "private": true,
+  "description": "阮梅桌面伙伴 · 连接本机梅梅 AI",
+  "author": "MeiMei; desktop host derived from ActorF",
+  "license": "MIT",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node scripts/launch.cjs",
+    "test": "node --test tests/*.test.cjs tests/*.test.mjs",
+    "test:smoke": "node scripts/launch.cjs --smoke-test",
+    "package": "electron-builder --dir",
+    "test:integration": "node scripts/launch.cjs --meimei-check",
+    "test:visual": "node scripts/meimei-visual-check.cjs",
+    "prepare:voices": "python scripts/prepare-voices.py"
+  },
+  "devDependencies": {
+    "electron": "43.8.0",
+    "electron-builder": "26.15.3",
+    "playwright": "1.64.1"
+  },
+  "build": {
+    "appId": "io.juha.meimei.desktop-pet",
+    "productName": "梅梅桌宠",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "!assets/reference/**/*",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY.md",
+      "README.md"
+    ],
+    "extraResources": [],
+    "asarUnpack": [
+      "electron/chat-runtime-host.ps1",
+      "electron/chat-tts-worker.py",
+      "electron/legacy-hotkeys.ps1",
+      "electron/typed-keys.ps1",
+      "electron/taskbar-order.ps1",
+      "electron/voice-environment.ps1"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/ui/app-icon.ico",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "unpackDirName": true,
+      "artifactName": "MeiMei-Desktop-Pet-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/ui/app-icon.ico",
+      "uninstallerIcon": "assets/ui/app-icon.ico",
+      "installerHeaderIcon": "assets/ui/app-icon.ico",
+      "artifactName": "MeiMei-Desktop-Pet-${version}-setup.exe",
+      "deleteAppDataOnUninstall": false
+    },
+    "electronDist": "node_modules/electron/dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JuHa531/meimei-local-ai-agent.git"
+  },
+  "homepage": "https://github.com/JuHa531/meimei-local-ai-agent",
+  "bugs": {
+    "url": "https://github.com/JuHa531/meimei-local-ai-agent/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

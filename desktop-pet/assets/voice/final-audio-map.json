@@ -1,0 +1,295 @@
+{
+  "status": "generated",
+  "generatedBy": "meimei-local-tts",
+  "generatedCount": 36,
+  "lines": [
+    {
+      "id": "01-1",
+      "text": "早上好，亲爱的。今天也按自己的步调来。",
+      "groupId": "01",
+      "groupName": "早上好",
+      "currentPath": "audio-final/01-1.wav",
+      "currentSha256": "bace237b366e75b866f57f35e14870dcbf3f3d3771490a8489578bfa705b674f"
+    },
+    {
+      "id": "01-2",
+      "text": "醒了？先喝些水，再开始今天的事。",
+      "groupId": "01",
+      "groupName": "早上好",
+      "currentPath": "audio-final/01-2.wav",
+      "currentSha256": "21ed47fa91a70e4cf4534394380d755aa4690dbc8b2b36822edc4611edb8fd47"
+    },
+    {
+      "id": "01-3",
+      "text": "晨光正好。今天有什么安排，告诉我吧。",
+      "groupId": "01",
+      "groupName": "早上好",
+      "currentPath": "audio-final/01-3.wav",
+      "currentSha256": "6ceeac5a115072daef3b9400baa90d1cd72bff34a0a9cadf3ace76825716db05"
+    },
+    {
+      "id": "02-1",
+      "text": "晚上好。忙了一天，先歇一会儿。",
+      "groupId": "02",
+      "groupName": "晚上好",
+      "currentPath": "audio-final/02-1.wav",
+      "currentSha256": "49185db2f352458758058791d5c28518ebbb8848cad8f8c9ffbba130016b08fa"
+    },
+    {
+      "id": "02-2",
+      "text": "亲爱的，今天有值得记住的事吗？",
+      "groupId": "02",
+      "groupName": "晚上好",
+      "currentPath": "audio-final/02-2.wav",
+      "currentSha256": "c11f671c939955b5acaa4a0e42503ac07bc15c4279a093c549179223582afa11"
+    },
+    {
+      "id": "02-3",
+      "text": "夜色安静下来了。我在这里听你说。",
+      "groupId": "02",
+      "groupName": "晚上好",
+      "currentPath": "audio-final/02-3.wav",
+      "currentSha256": "ee6753ef0388c9bd3fe462344d437e7eb146749a5cfcb18d0e919778ad01110c"
+    },
+    {
+      "id": "03-1",
+      "text": "已经很晚了。剩下的事，留给明天吧。",
+      "groupId": "03",
+      "groupName": "还不睡",
+      "currentPath": "audio-final/03-1.wav",
+      "currentSha256": "e2cc0d06498345116cc8d551b29592e670f016696a85557c0b20641500700296"
+    },
+    {
+      "id": "03-2",
+      "text": "亲爱的，身体也需要休息。别勉强自己。",
+      "groupId": "03",
+      "groupName": "还不睡",
+      "currentPath": "audio-final/03-2.wav",
+      "currentSha256": "34de43e621cbe2172e55364749028bbd2d9abd39065dc7bf6572b7a629a81999"
+    },
+    {
+      "id": "03-3",
+      "text": "今天就到这里。睡个好觉，我会在。",
+      "groupId": "03",
+      "groupName": "还不睡",
+      "currentPath": "audio-final/03-3.wav",
+      "currentSha256": "2fc8de46a067a80c7e647d0de4b9fc76a7d881ea0dc7bf8fa83863355fb64996"
+    },
+    {
+      "id": "04-1",
+      "text": "吃过饭了吗？别把这一件事忘了。",
+      "groupId": "04",
+      "groupName": "吃了没",
+      "currentPath": "audio-final/04-1.wav",
+      "currentSha256": "42a3f44189b755849d97380efac8293f0bc603734254f77b0c97f321ce5e9815"
+    },
+    {
+      "id": "04-2",
+      "text": "先吃些东西。工作可以稍等片刻。",
+      "groupId": "04",
+      "groupName": "吃了没",
+      "currentPath": "audio-final/04-2.wav",
+      "currentSha256": "f93d4f0ed2c53cce3a7c3446871630319e02732ff6a7c8649152a3966cd58d3b"
+    },
+    {
+      "id": "04-3",
+      "text": "忙之前，也照顾好自己的胃口。",
+      "groupId": "04",
+      "groupName": "吃了没",
+      "currentPath": "audio-final/04-3.wav",
+      "currentSha256": "5a7722f1f0e48209783b15054769904e4bff435146da295c29c686640d359a5d"
+    },
+    {
+      "id": "05-1",
+      "text": "回来了。手边的事，我替你看着。",
+      "groupId": "05",
+      "groupName": "欢迎回来",
+      "currentPath": "audio-final/05-1.wav",
+      "currentSha256": "a0bb542b0ed9497b1c2282a712ee5188393e5c5d3310df4f689d58061a9dcda9"
+    },
+    {
+      "id": "05-2",
+      "text": "欢迎回来。刚才的安排，我们慢慢接着做。",
+      "groupId": "05",
+      "groupName": "欢迎回来",
+      "currentPath": "audio-final/05-2.wav",
+      "currentSha256": "8a284e968942c54d5ee05e93b75019a9d1a1625800c678b2e9dcd689e05a1d70"
+    },
+    {
+      "id": "05-3",
+      "text": "亲爱的，先坐一会儿吧。",
+      "groupId": "05",
+      "groupName": "欢迎回来",
+      "currentPath": "audio-final/05-3.wav",
+      "currentSha256": "d10fcf0551154d9c122c483575a74eff584591d2a532f2ed3882ff7140674077"
+    },
+    {
+      "id": "06-1",
+      "text": "坐得有些久了。起来走几步，如何？",
+      "groupId": "06",
+      "groupName": "休息一下",
+      "currentPath": "audio-final/06-1.wav",
+      "currentSha256": "054b04a3e7f871027b5cd0833f0925be8ecd810ecb6a87a734de8bdbf4bb3290"
+    },
+    {
+      "id": "06-2",
+      "text": "把目光从屏幕上移开，歇一歇。",
+      "groupId": "06",
+      "groupName": "休息一下",
+      "currentPath": "audio-final/06-2.wav",
+      "currentSha256": "7420feead6873ab6d974ac8435914ee78349403900d1f75871d3a969b3a2ad23"
+    },
+    {
+      "id": "06-3",
+      "text": "不必把所有事情挤在同一刻完成。",
+      "groupId": "06",
+      "groupName": "休息一下",
+      "currentPath": "audio-final/06-3.wav",
+      "currentSha256": "e0bbdad3c8d8cc9035c0f6b546e77b3e1eb83b161eebd520c922abb9aef4c98c"
+    },
+    {
+      "id": "07-1",
+      "text": "新的一周开始了。先挑一件最重要的事。",
+      "groupId": "07",
+      "groupName": "午后问候",
+      "currentPath": "audio-final/07-1.wav",
+      "currentSha256": "fe32013b552bcd87861ec0573c5d98af72950eee5f6cd3d8ef7682fbbc51a3ee"
+    },
+    {
+      "id": "07-2",
+      "text": "周一也不必着急。把计划分成几步就好。",
+      "groupId": "07",
+      "groupName": "午后问候",
+      "currentPath": "audio-final/07-2.wav",
+      "currentSha256": "30ac48ce3e45e66d4c719d880022ce1dd9079d6d85374da4b3d8861dda6557fa"
+    },
+    {
+      "id": "07-3",
+      "text": "亲爱的，今天的安排，我们一起看看。",
+      "groupId": "07",
+      "groupName": "午后问候",
+      "currentPath": "audio-final/07-3.wav",
+      "currentSha256": "362d968682eac436075587afa0917d92b404d36708054c910ba95911dfc75e8a"
+    },
+    {
+      "id": "08-1",
+      "text": "这一周辛苦了。今晚留一点时间给自己。",
+      "groupId": "08",
+      "groupName": "周五晚上",
+      "currentPath": "audio-final/08-1.wav",
+      "currentSha256": "4557a47af6bc2fadb6dbc9bf6ec599a59313c816e64dd6ec236cdbc1d0351933"
+    },
+    {
+      "id": "08-2",
+      "text": "到周五了。未完成的事，也可以从容收尾。",
+      "groupId": "08",
+      "groupName": "周五晚上",
+      "currentPath": "audio-final/08-2.wav",
+      "currentSha256": "24f591076bae5b9a7a63e23fa9bcc18e31e01788239905f291146661c71134c5"
+    },
+    {
+      "id": "08-3",
+      "text": "晚些时候，听首喜欢的歌吧。",
+      "groupId": "08",
+      "groupName": "周五晚上",
+      "currentPath": "audio-final/08-3.wav",
+      "currentSha256": "3f52f8ae7f421eb784ff5f5b5bdc5f8f880f892743df5d6348e8c802e587ea29"
+    },
+    {
+      "id": "09-1",
+      "text": "周末到了。今天想怎样度过？",
+      "groupId": "09",
+      "groupName": "周末问候",
+      "currentPath": "audio-final/09-1.wav",
+      "currentSha256": "3df74ccaa99a976fc068587a4b291ca18c4d287bc218c6e58279bd14dd232fd3"
+    },
+    {
+      "id": "09-2",
+      "text": "没有紧迫的安排，就慢一点也无妨。",
+      "groupId": "09",
+      "groupName": "周末问候",
+      "currentPath": "audio-final/09-2.wav",
+      "currentSha256": "e80623f9bb78c680d3f94d9774faf61bcd82b64f359fbe3b57f501168731dcc1"
+    },
+    {
+      "id": "09-3",
+      "text": "天气合适的话，出去走走吧。",
+      "groupId": "09",
+      "groupName": "周末问候",
+      "currentPath": "audio-final/09-3.wav",
+      "currentSha256": "90fd133fc31131f9fd33e134c9895502f06e9fd1fa14e90d91888716c71c80b9"
+    },
+    {
+      "id": "10-1",
+      "text": "有些日子不见了。近来还好吗？",
+      "groupId": "10",
+      "groupName": "好久不见",
+      "currentPath": "audio-final/10-1.wav",
+      "currentSha256": "b1af40e6218e6435a3c7d28c99e666f545dea057b99f16350158397b0a02cdb6"
+    },
+    {
+      "id": "10-2",
+      "text": "你回来了。愿意和我说说这几天吗？",
+      "groupId": "10",
+      "groupName": "好久不见",
+      "currentPath": "audio-final/10-2.wav",
+      "currentSha256": "16e5058f8a703a2615ac1c450aaf4c45ffe9519e8d55fb61927714ab73be2598"
+    },
+    {
+      "id": "10-3",
+      "text": "亲爱的，见到你，我很安心。",
+      "groupId": "10",
+      "groupName": "好久不见",
+      "currentPath": "audio-final/10-3.wav",
+      "currentSha256": "8419663649abd189072edcfdad454da58f7b400cf1d1d234b3909403e36b533a"
+    },
+    {
+      "id": "11-1",
+      "text": "生日快乐，亲爱的。愿今天留给你一些美好的记忆。",
+      "groupId": "11",
+      "groupName": "生日祝福",
+      "currentPath": "audio-final/11-1.wav",
+      "currentSha256": "0a277bd1ab88522808df05bd37059b614522fd329b7377b0ebb68f843bc4fdb3"
+    },
+    {
+      "id": "11-2",
+      "text": "今天是你的生日。也给自己一小份奖励吧。",
+      "groupId": "11",
+      "groupName": "生日祝福",
+      "currentPath": "audio-final/11-2.wav",
+      "currentSha256": "827e114987ac74d2c5d878a67b6a8c7ed55698fca5a9492f34ca53838dc2ae4d"
+    },
+    {
+      "id": "11-3",
+      "text": "新的一岁，不必急着成为别人期待的模样。",
+      "groupId": "11",
+      "groupName": "生日祝福",
+      "currentPath": "audio-final/11-3.wav",
+      "currentSha256": "1e26693e26abcb533b4df645e529588af7b6ded6a1ee5510bc6b5bd781afda2b"
+    },
+    {
+      "id": "12-1",
+      "text": "要离开一会儿？我记着，路上小心。",
+      "groupId": "12",
+      "groupName": "暂时告别",
+      "currentPath": "audio-final/12-1.wav",
+      "currentSha256": "6f265503f5417f3ff68cfa9891075f92e49a371f2a04a59369c7a497dcc32f55"
+    },
+    {
+      "id": "12-2",
+      "text": "今天辛苦了。下次再见，亲爱的。",
+      "groupId": "12",
+      "groupName": "暂时告别",
+      "currentPath": "audio-final/12-2.wav",
+      "currentSha256": "36bd987485a02c96baf1ab370e28080afaacf093b8515c225fe5cd4c9aad90ff"
+    },
+    {
+      "id": "12-3",
+      "text": "好，先去休息吧。我会在这里。",
+      "groupId": "12",
+      "groupName": "暂时告别",
+      "currentPath": "audio-final/12-3.wav",
+      "currentSha256": "6e36ca40f03008e1e0aa45f743da7d0bda582e1a9489902026d27566524d608d"
+    }
+  ]
+}

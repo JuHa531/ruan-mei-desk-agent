@@ -10,6 +10,14 @@
 # Ollama 是 Windows 服务，开机自动运行，不用手动起。
 
 $ErrorActionPreference = "Stop"
+$VoiceStartupMutex = New-Object System.Threading.Mutex($false, "Local\MeiMeiVoiceStartup")
+try { $VoiceStartupOwned = $VoiceStartupMutex.WaitOne(0) }
+catch [System.Threading.AbandonedMutexException] { $VoiceStartupOwned = $true }
+if (-not $VoiceStartupOwned) {
+    Write-Host "Voice startup is already in progress."
+    $VoiceStartupMutex.Dispose()
+    exit 0
+}
 
 $GsRoot   = "G:\ai\GPT-SoVITS\GPT-SoVITS-main"
 $GsPython = "D:\ai\envs\tts\python.exe"
@@ -17,6 +25,8 @@ $Adapter  = "C:\Users\qqqqq\Documents\Codex\2026-10-06\wo\outputs\local-ai-toolk
 $Config   = "C:\Users\qqqqq\Documents\Codex\2026-10-06\wo\outputs\local-ai-toolkit\voice\voices.json"
 $AdPython = "D:\ai\envs\meimei-app\Scripts\python.exe"
 $Asr      = "C:\Users\qqqqq\Documents\Codex\2026-10-06\wo\outputs\local-ai-toolkit\voice\asr_server.py"
+$LogDir   = Join-Path (Split-Path (Split-Path $Adapter)) "logs"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 function Test-Port($port) {
     return [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
@@ -30,7 +40,9 @@ if (Test-Port 9880) {
     Write-Host "  [启动] GPT-SoVITS（首次调用要预热约 5 分钟）"
     $GsApi = Join-Path (Split-Path $Adapter) "gptsovits_local_api.py"
     Start-Process -FilePath $GsPython -ArgumentList $GsApi, "-a", "127.0.0.1", "-p", "9880" `
-        -WorkingDirectory $GsRoot -WindowStyle Hidden
+        -WorkingDirectory $GsRoot -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $LogDir "gptsovits.stdout.log") `
+        -RedirectStandardError (Join-Path $LogDir "gptsovits.stderr.log")
 }
 
 Start-Sleep -Seconds 3
@@ -40,7 +52,9 @@ if (Test-Port 9881) {
 } else {
     Write-Host "  [启动] 语音适配器（9881）"
     Start-Process -FilePath $AdPython -ArgumentList $Adapter, "--config", $Config `
-        -WorkingDirectory (Split-Path $Adapter) -WindowStyle Hidden
+        -WorkingDirectory (Split-Path $Adapter) -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $LogDir "tts.stdout.log") `
+        -RedirectStandardError (Join-Path $LogDir "tts.stderr.log")
 }
 
 # 语音识别（听你说话）：必须用 tts 环境，funasr 和模型都在里面
@@ -127,3 +141,5 @@ Write-Host "  API Key        随便填"
 Write-Host "  TTS Voice      ruanmei"
 Write-Host ""
 Write-Host "第一次合成会等 5 分钟左右（模型预热），之后每次 1~2 秒。" -ForegroundColor Yellow
+$VoiceStartupMutex.ReleaseMutex()
+$VoiceStartupMutex.Dispose()

@@ -86,3 +86,19 @@ chunkState.buf='晚安。';chunkState.chunks=0;
 assert.equal(chunks.takeChunk(false),null);
 assert.equal(chunks.takeChunk(true),'晚安。','short complete replies must still be spoken');
 console.log('PASS: song recommendations retain text; short intros stay with their sentence');
+
+chunkState.buf='';chunkState.chunks=0;chunkState.lastLen=0;
+const english='Take your time and listen to this extraordinarily beautiful conversation before returning to your work.';
+const englishParts=[];
+for(const char of english){
+  chunkState.buf+=char;
+  const part=chunks.takeChunk(false);
+  if(part){englishParts.push(part);chunkState.chunks++;}
+}
+const englishRest=chunks.takeChunk(true);if(englishRest)englishParts.push(englishRest);
+assert.equal(englishParts.join(''),english);
+for(let i=1;i<englishParts.length;i++){
+  assert.ok(!(/[A-Za-z0-9]$/.test(englishParts[i-1]) && /^[A-Za-z0-9]/.test(englishParts[i])),
+            'English words must remain intact across TTS requests');
+}
+console.log('PASS: streaming preserves complete English words');

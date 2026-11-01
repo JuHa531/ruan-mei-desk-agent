@@ -7,6 +7,8 @@
 | `agent_server.py` | 主后端：对话 API、Ollama 工具调用、提醒、媒体控制、安全检查和静态文件服务。 |
 | `agent.html` | 当前三栏桌面界面：会话、聊天、任务、语音、背景和表情。 |
 | `desktop.py` | PyWebView2 桌面外壳：无边框窗口、服务启动、自检和缓存刷新。 |
+| `pet_controller.py` | 内置桌宠控制：开关、大小、私有管道、返回当前对话与进程树退出清理。 |
+| `window_focus.py` | 从桌宠管道线程恢复并激活梅梅，保留最大化状态，激活后恢复普通窗口层级。 |
 | `office_tools.py` | 生成或处理 Word、Excel、PowerPoint 和视频文件。 |
 | `server.py` | 早期简易聊天服务，保留用于兼容。 |
 | `index.html` | 早期简易聊天页面。 |

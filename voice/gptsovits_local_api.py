@@ -14,6 +14,24 @@ def main():
         raise RuntimeError('Start from the installed GPT-SoVITS checkout')
     sys.path.insert(0,os.getcwd())
     import api_v2
+    import nltk
+    # Upstream portable initialization overrides NLTK_DATA. Keep resources
+    # installed in the selected Python environment reachable explicitly.
+    nltk.data.path.insert(0, os.path.join(sys.prefix, 'nltk_data'))
+    from fastapi.responses import JSONResponse
+
+    @api_v2.APP.get('/healthz')
+    def runtime_health():
+        resources = {}
+        for resource in ('taggers/averaged_perceptron_tagger_eng',):
+            try:
+                nltk.data.find(resource)
+                resources[resource] = True
+            except LookupError:
+                resources[resource] = False
+        ok = all(resources.values())
+        return JSONResponse({'ok':ok, 'resources':resources}, status_code=200 if ok else 503)
+
     import uvicorn
     api_v2.APP.add_middleware(LoopbackASGIGuard)
     uvicorn.run(app=api_v2.APP,host='127.0.0.1',port=api_v2.port,workers=1)

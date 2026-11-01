@@ -120,6 +120,15 @@ def load_config(path):
         sys.exit("[错误] 配置里缺少 backend.base_url，参考 voices.example.json")
     if not cfg.get("voices"):
         sys.exit("[错误] 配置里没有任何音色，参考 voices.example.json")
+    english_path = os.path.join(os.path.dirname(os.path.abspath(path)), 'english.local.json')
+    if os.path.isfile(english_path):
+        try:
+            with open(english_path, encoding='utf-8') as f:
+                cfg['english'] = json.load(f)
+            cfg['english']['_config_path'] = english_path
+        except (ValueError, OSError, TypeError) as error:
+            cfg.pop('english', None)
+            sys.stderr.write('[English config] %s\n' % error)
     return cfg
 
 
@@ -247,6 +256,32 @@ def role_speech_segments(text, limit=48, min_segment=18):
     return '\n'.join(grouped)
 
 
+def prepare_spoken_text(text, voice):
+    """Normalize pronunciation without rewriting displayed replies or English titles."""
+    lang = voice.get('text_lang', 'zh')
+    if lang not in ('zh', 'all_zh', 'auto', 'en'):
+        return text, lang
+    # Chinese app names and version labels have established spoken forms.
+    # Do not transliterate arbitrary English words or translate song titles.
+    text = re.sub(r'(?<![A-Za-z])QQ\s*(?:Music|音乐)(?![A-Za-z])', '扣扣音乐', text, flags=re.I)
+    text = re.sub(r'([（(])\s*Live\s*([)）])', r'\1现场版\2', text, flags=re.I)
+    for original, spoken in (voice.get('pronunciation_overrides') or {}).items():
+        if isinstance(original, str) and original and isinstance(spoken, str) and spoken:
+            text = re.sub(r'(?<![A-Za-z])' + re.escape(original) + r'(?![A-Za-z])',
+                          lambda _: spoken, text, flags=re.I)
+    # Known initialisms must be read as letters, not guessed as unknown words.
+    text = re.sub(r'(?<![A-Za-z])(?:QQ|AI|CPU|GPU|USB|PDF|ADB|TTS|ASR|VIP|DJ)(?![A-Za-z])',
+                  lambda m: ' '.join(m.group()), text)
+    if re.search(r'[A-Za-z]', text):
+        has_cjk = bool(re.search(r'[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]', text))
+        if lang in ('zh', 'all_zh'):
+            lang = 'zh' if has_cjk else 'en'
+        # Keep English spans and their Chinese context in one inference call.
+        text = re.sub(r'([\u3400-\u9fff])([A-Za-z])', r'\1 \2', text)
+        text = re.sub(r'([A-Za-z])([\u3400-\u9fff])', r'\1 \2', text)
+    return text, lang
+
+
 def build_gptsovits_payload(cfg, vcfg, text, speed, media_type, emo=None):
     """
     GPT-SoVITS 没有情绪参数，情绪完全由「参考音频」带出来。
@@ -263,7 +298,7 @@ def build_gptsovits_payload(cfg, vcfg, text, speed, media_type, emo=None):
             "[警告] GPT-SoVITS 没有情绪参数，情绪只能靠换参考音频实现。\n"
             "       请在配置的 emotions 里为每种情绪指定 ref_audio_path，\n"
             "       或者把 backend.type 换成 index_tts 使用真正的情绪控制。\n")
-    lang = merged.get("text_lang", "zh")
+    text, lang = prepare_spoken_text(text, merged)
     # post uses a native-speed model plus optional FFmpeg; native asks the model to pace speech.
     native = use_post_speed(cfg, vcfg, media_type)
     speed_factor = speed if native else merged.get("speed", 1.0) * speed
@@ -521,24 +556,89 @@ def wav_quality_issue(data, text, min_rate=5.0):
 
 
 _BACKEND_LOCK = threading.Lock()
+_BACKEND_LAST_OK = 0.0
+
+
+def language_speech_payloads(payload):
+    """Use native English for complete clauses; keep short embedded titles in context."""
+    text = payload.get('text', '')
+    if (payload.get('media_type', 'wav') != 'wav'
+            or payload.get('text_lang') not in ('zh', 'all_zh', 'auto')
+            or not re.search(r'[\u3400-\u9fff]', text)):
+        return [payload]
+    groups = []
+    for part in re.split(r'(?<=[，,。！？.!?\n])\s*(?=[A-Za-z\u3400-\u9fff])', text):
+        part = part.strip()
+        if not part:
+            continue
+        words = re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", part)
+        english = (bool(words) and not re.search(r'[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]', part)
+                   and (len(words) >= 3 or part.endswith(('.', '!', '?'))))
+        lang = 'en' if english else payload['text_lang']
+        if groups and groups[-1][0] == lang:
+            groups[-1][1] += (' ' if lang == 'en' else '') + part
+        else:
+            groups.append([lang, part])
+    if not any(lang == 'en' for lang, _ in groups):
+        return [payload]
+    return [dict(payload, text=(role_speech_segments(text)
+                               if lang != 'en' and payload.get('text_split_method') == 'cut0' else text),
+                 text_lang=lang) for lang, text in groups]
+
+
+def join_speech_wavs(clips, gap_seconds=.22):
+    """Join same-voice PCM with a small pause, without filtering or time stretching."""
+    import io
+    import wave
+    if len(clips) == 1:
+        return clips[0]
+    pcm = []
+    params = None
+    try:
+        for clip in clips:
+            with wave.open(io.BytesIO(clip), 'rb') as source:
+                current = (source.getnchannels(), source.getsampwidth(), source.getframerate(), source.getcomptype())
+                if current[3] != 'NONE' or (params is not None and current != params):
+                    raise ValueError('中英文音频格式不一致')
+                params = current
+                pcm.append(source.readframes(source.getnframes()))
+        silence = b'\0' * (round(params[2] * gap_seconds) * params[0] * params[1])
+        output = io.BytesIO()
+        with wave.open(output, 'wb') as target:
+            target.setnchannels(params[0]); target.setsampwidth(params[1]); target.setframerate(params[2])
+            target.writeframes(silence.join(pcm))
+        return output.getvalue()
+    except (OSError, EOFError, ValueError, wave.Error) as e:
+        raise RuntimeError('中英文语音衔接失败：%s' % e) from e
 
 
 def call_backend(cfg, payload, path=None):
+    global _BACKEND_LAST_OK
     path = path or cfg["backend"].get("tts_path", "/tts")
     url = cfg["backend"]["base_url"].rstrip("/") + path
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     timeout = cfg.get("timeout_seconds", 300)
     try:
         # GPT-SoVITS 后端不是并发安全的。前端或其它客户端同时提两段时，
         # 请求会互相拖慢甚至偶发 HTTP 错误；这里只串行保护真正耗时的模型调用。
         with _BACKEND_LOCK:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read()
+            pieces = (language_speech_payloads(payload)
+                      if cfg['backend'].get('type', 'gpt_sovits') == 'gpt_sovits' else [payload])
+            clips = []
+            for piece in pieces:
+                from english_client import eligible, synthesize
+                if eligible(cfg.get('english', {}), piece):
+                    try:
+                        clips.append(synthesize(cfg['english'], piece))
+                        _BACKEND_LAST_OK = time.monotonic()
+                        continue
+                    except RuntimeError as error:
+                        sys.stderr.write('[English fallback] %s\n' % error)
+                req = urllib.request.Request(url, data=json.dumps(piece).encode('utf-8'),
+                                             headers={'Content-Type':'application/json'}, method='POST')
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    clips.append(r.read())
+                    _BACKEND_LAST_OK = time.monotonic()
+            return join_speech_wavs(clips) if len(clips) > 1 else clips[0]
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
         raise RuntimeError(f"语音后端返回 {e.code}：{detail}") from e
@@ -601,6 +701,7 @@ class Handler(LocalRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        global _BACKEND_LAST_OK
         if self.path.split("?")[0] in ("/v1/models", "/models"):
             is_idx = self.cfg["backend"].get("type") == "index_tts"
             ids = []
@@ -620,13 +721,32 @@ class Handler(LocalRequestHandler):
             self._json({"object": "list", "data": data})
         elif self.path.split("?")[0] == "/healthz":
             backend = self.cfg["backend"]["base_url"].rstrip("/")
-            probe = "/openapi.json" if self.cfg["backend"].get("type", "gpt_sovits") == "gpt_sovits" else "/healthz"
+            # Upstream blocks its event loop during inference. A recent healthy
+            # backend doing synthesis should not appear offline every 3 seconds.
+            if (_BACKEND_LOCK.locked() and _BACKEND_LAST_OK > 0
+                    and 0 <= time.monotonic() - _BACKEND_LAST_OK < 120):
+                self._json({'ok':True, 'busy':True, 'backend':backend})
+                return
+            probe = "/healthz"
             try:
                 with urllib.request.urlopen(backend + probe, timeout=3) as r:
-                    ok = r.status == 200
-            except (OSError, urllib.error.URLError):
+                    ok = r.status == 200 and json.load(r).get('ok', True)
+            except urllib.error.HTTPError as e:
+                # Unwrapped third-party GPT-SoVITS versions have no healthz.
                 ok = False
+                if e.code == 404 and self.cfg['backend'].get('type', 'gpt_sovits') == 'gpt_sovits':
+                    try:
+                        with urllib.request.urlopen(backend + '/openapi.json', timeout=3) as r:
+                            ok = r.status == 200
+                    except (OSError, urllib.error.URLError):
+                        pass
+            except (OSError, urllib.error.URLError, ValueError):
+                ok = False
+            if ok:
+                _BACKEND_LAST_OK = time.monotonic()
+            from english_client import status as english_status
             self._json({"ok": ok, "backend": backend,
+                        "english": english_status(self.cfg.get('english', {})),
                         "type": self.cfg["backend"].get("type", "gpt_sovits"),
                         "emotions": EMO_ORDER,
                         "voices": list(self.cfg["voices"])}, 200 if ok else 503)

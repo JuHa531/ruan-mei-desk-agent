@@ -86,6 +86,22 @@ def diagnose():
     except Exception as e:result['weights']={'error':str(e)[:180]}
     is_index=config.get('backend',{}).get('type')=='index_tts'
     result['optional_backends']={'index_tts':{'selected':is_index,'required_for_current_voice':is_index}}
+    english_path=ROOT/'voice/english.local.json'
+    if english_path.is_file():
+        try:
+            en=json.loads(english_path.read_text(encoding='utf8'))
+            files={'python':en['python'],'reference':en['reference'],
+                   'model':str(Path(en['model_dir'])/'model.safetensors'),
+                   'tokenizer':str(Path(en['model_dir'])/'speech_tokenizer/model.safetensors'),
+                   'acoustic':str(Path(en['gptsovits_root'])/en['acoustic_weights'])}
+            checks={name:Path(path).is_file() for name,path in files.items()}
+            probe=office_tools.run_hidden([en['python'],'-c',
+                "import importlib.util,json; print(json.dumps({x:importlib.util.find_spec(x) is not None for x in ['qwen_tts','torch','soundfile','transformers']}))"],
+                capture_output=True,text=True,timeout=20)
+            packages=json.loads(probe.stdout)
+            result['english_environment']={'enabled':bool(en.get('enabled')),'files':checks,
+                'packages':packages,'ok':all(checks.values()) and all(packages.values()) and probe.returncode==0}
+        except Exception as e:result['english_environment']={'ok':False,'error':str(e)[:180]}
     result['integration_model']='Built-in local tools; no external skill/plugin loader is required for current features.'
     try:
         import psutil

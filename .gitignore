@@ -13,6 +13,7 @@ data/提醒记录.json
 data/听歌记录.json
 app/appearance.json
 voice/voices.json
+voice/english.local.json
 
 # Personal machine notes
 C盘清理记录.md

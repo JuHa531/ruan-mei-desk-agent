@@ -20,6 +20,7 @@ GPT-SoVITS 的训练脚本从**环境变量**读路径，WebUI 也只是帮忙�
 """
 
 import argparse
+from pathlib import Path
 import json
 import os
 import re
@@ -152,7 +153,7 @@ def step_1b(epochs=20, batch=4):
         ["--config", os.path.relpath(cfg, ROOT).replace("\\", "/")])
 
 
-def write_s1_config(epochs, batch, pretrained=None):
+def write_s1_config(epochs, batch, pretrained=None, learning_rate=None):
     import re
     import yaml
     src = os.path.join(ROOT, "GPT_SoVITS/configs/s1longer-v2.yaml")
@@ -173,6 +174,8 @@ def write_s1_config(epochs, batch, pretrained=None):
     cfg["train"]["half_weights_save_dir"] = "GPT_weights_v2"
     cfg["train"]["exp_name"] = EXP_NAME
     cfg["pretrained_s1"] = pretrained or pre
+    if learning_rate is not None:
+        cfg['optimizer'].update(lr_init=learning_rate, lr=learning_rate, lr_end=learning_rate)
     cfg["train_semantic_path"] = os.path.join(opt, "6-name2semantic.tsv").replace("\\", "/")
     cfg["train_phoneme_path"] = os.path.join(opt, "2-name2text.txt").replace("\\", "/")
     cfg["output_dir"] = os.path.join(opt, "logs_s1_v2").replace("\\", "/")
@@ -183,15 +186,18 @@ def write_s1_config(epochs, batch, pretrained=None):
     return out
 
 
-def step_1c(epochs=15, batch=4, pretrained=None):
-    cfg = write_s1_config(epochs, batch, pretrained)
+def step_1c(epochs=15, batch=4, pretrained=None, learning_rate=None):
+    cfg = write_s1_config(epochs, batch, pretrained, learning_rate)
     print("[1C] 训练 GPT（%d 轮，batch %d）" % (epochs, batch))
-    run("GPT_SoVITS/s1_train.py", {"_CUDA_VISIBLE_DEVICES": "0", "hz": "25hz"},
+    wrapper = str(Path(__file__).resolve().with_name('gptsovits_train_wrapper.py'))
+    run(wrapper, {"_CUDA_VISIBLE_DEVICES": "0", "hz": "25hz"},
         ["--config_file", os.path.relpath(cfg, ROOT).replace("\\", "/")])
 
 
 def main():
     global EXP_NAME, OPT_DIR, LIST_FILE, WAV_DIR
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
     ap = argparse.ArgumentParser(description="GPT-SoVITS 精调（命令行）")
     ap.add_argument("--step", required=True, choices=["1a", "1b", "1c", "train", "all"])
     ap.add_argument("--s2-epochs", type=int, default=20)
@@ -199,6 +205,7 @@ def main():
     ap.add_argument("--s1-epochs", type=int, default=15)
     ap.add_argument("--s1-batch", type=int, default=4)
     ap.add_argument("--s1-pretrained", help="已有 GPT 半精度权重；从该权重继续微调，优化器重新初始化")
+    ap.add_argument("--s1-learning-rate", type=float, help="固定 GPT 学习率，包含首次更新；保守续训可用 0.00005")
     ap.add_argument("--force", action="store_true",
                     help="1A 前备份旧文本/特征，强制按当前 list.txt 重建")
     ap.add_argument("--experiment", default=EXP_NAME, help="独立实验名，避免覆盖当前音色权重")
@@ -212,6 +219,8 @@ def main():
         ap.error("epochs / batch 必须为正整数")
     if args.s1_pretrained and not os.path.isfile(args.s1_pretrained):
         ap.error("找不到 s1-pretrained 权重")
+    if args.s1_learning_rate is not None and not 1e-7 <= args.s1_learning_rate <= 1e-3:
+        ap.error('s1-learning-rate 必须在 1e-7 至 1e-3 之间')
     EXP_NAME = args.experiment
     OPT_DIR = os.path.join(EXP_ROOT, EXP_NAME)
     LIST_FILE = os.path.abspath(args.list)
@@ -254,7 +263,7 @@ def main():
     if args.step in ("1b", "train", "all"):
         step_1b(args.s2_epochs, args.s2_batch)
     if args.step in ("1c", "train", "all"):
-        step_1c(args.s1_epochs, args.s1_batch, args.s1_pretrained)
+        step_1c(args.s1_epochs, args.s1_batch, args.s1_pretrained, args.s1_learning_rate)
     print("")
     print("[完成] step=%s" % args.step)
 

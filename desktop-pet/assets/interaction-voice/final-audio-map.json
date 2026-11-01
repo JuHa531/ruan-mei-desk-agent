@@ -1,0 +1,133 @@
+{
+  "status": "generated",
+  "generatedBy": "meimei-local-tts",
+  "generatedCount": 18,
+  "lines": [
+    {
+      "id": "H01",
+      "groupId": "head-pat",
+      "text": "嗯，轻一些就好。",
+      "currentPath": "audio-final/H01.wav",
+      "currentSha256": "d1adabc202217b6f96d5e20aa1bf648c325c8022a481de88cac4784a21cf1e8f"
+    },
+    {
+      "id": "H02",
+      "groupId": "head-pat",
+      "text": "是你啊。我知道了。",
+      "currentPath": "audio-final/H02.wav",
+      "currentSha256": "cb8609dec37a44c75d7ee617eec0310660608359d2eb76f04cdfaf35d0af5499"
+    },
+    {
+      "id": "H03",
+      "groupId": "head-pat",
+      "text": "头发被弄乱了。容我整理一下。",
+      "currentPath": "audio-final/H03.wav",
+      "currentSha256": "27dffb00f48242ef63a29dab7ad5b58ac7dfa9ba2c161718577250babc88fb68"
+    },
+    {
+      "id": "H04",
+      "groupId": "head-pat",
+      "text": "这样的距离，倒也不坏。",
+      "currentPath": "audio-final/H04.wav",
+      "currentSha256": "39e59dd69210712165a49c126036a47cf4462f2e536fcc09ab055f8ff5aa8699"
+    },
+    {
+      "id": "H05",
+      "groupId": "head-pat",
+      "text": "手心很暖。刚忙完吗？",
+      "currentPath": "audio-final/H05.wav",
+      "currentSha256": "329f2528a6a6e743272d1872f47b65362d3af6e794084428ae1e7eb57dcf4303"
+    },
+    {
+      "id": "H06",
+      "groupId": "head-pat",
+      "text": "好，留在这里陪你片刻。",
+      "currentPath": "audio-final/H06.wav",
+      "currentSha256": "2139223132f835a4d23bf1d4bfe3abe866ea2e754cae23c09d1554be92386d8d"
+    },
+    {
+      "id": "P01",
+      "groupId": "poke",
+      "text": "嗯？我在听。",
+      "currentPath": "audio-final/P01.wav",
+      "currentSha256": "d90139b1886f53a99119320e96196ff73023ed834d92a6bf46aa6e1e3f007aa3"
+    },
+    {
+      "id": "P02",
+      "groupId": "poke",
+      "text": "有什么事，直接告诉我就好。",
+      "currentPath": "audio-final/P02.wav",
+      "currentSha256": "ac3a3ceccc4e4e3c6bea4f62ac08681a01f1a5cdb982acf527ae5db85785af3c"
+    },
+    {
+      "id": "P03",
+      "groupId": "poke",
+      "text": "看见你了，不必着急。",
+      "currentPath": "audio-final/P03.wav",
+      "currentSha256": "29036d55afefb77e625ccbe8a930f93a1dde7aba88c02f7b22d3f415fb38ba9d"
+    },
+    {
+      "id": "P04",
+      "groupId": "poke",
+      "text": "是在提醒我陪你吗？",
+      "currentPath": "audio-final/P04.wav",
+      "currentSha256": "43ccde4ad980b5555148b57f75dc0063df8fa0a52f1ed398275c530d4a3e48db"
+    },
+    {
+      "id": "P05",
+      "groupId": "poke",
+      "text": "亲爱的，今天想做些什么？",
+      "currentPath": "audio-final/P05.wav",
+      "currentSha256": "807e79ea9708f0d63e5e6b0d7473a4937321da4ec3a5e92297031abe30809a21"
+    },
+    {
+      "id": "P06",
+      "groupId": "poke",
+      "text": "我没有走神。只是在想你的事。",
+      "currentPath": "audio-final/P06.wav",
+      "currentSha256": "cc49d2b4cfee0a21768781a45403ca6e7110283e129002991dbac0184889bca5"
+    },
+    {
+      "id": "A01",
+      "groupId": "poke-annoyed",
+      "text": "好了，先停一停。",
+      "currentPath": "audio-final/A01.wav",
+      "currentSha256": "0a6fb56188ef26f2b478b1e8d8af4fb6a0021eebe7769f936bfa433c713dfd2c"
+    },
+    {
+      "id": "A02",
+      "groupId": "poke-annoyed",
+      "text": "你的观察方式，似乎有些特别。",
+      "currentPath": "audio-final/A02.wav",
+      "currentSha256": "9f5c6c47d58266ccdc2ae4a8886cda39e67146d98033de1b55d133ae5c219d42"
+    },
+    {
+      "id": "A03",
+      "groupId": "poke-annoyed",
+      "text": "再这样，我要把你的手记下了。",
+      "currentPath": "audio-final/A03.wav",
+      "currentSha256": "fbe03412d955d2ec25f6f732f68b3c2fbf3ec9f3b42ab70a527a39f5ceb38f05"
+    },
+    {
+      "id": "A04",
+      "groupId": "poke-annoyed",
+      "text": "是有什么话，不好直接说吗？",
+      "currentPath": "audio-final/A04.wav",
+      "currentSha256": "c08690cff36897c1ba7eccb0d7ec5a065a39f093eca2f60cb0bda9f196a047c9"
+    },
+    {
+      "id": "A05",
+      "groupId": "poke-annoyed",
+      "text": "我看见你的恶作剧了。",
+      "currentPath": "audio-final/A05.wav",
+      "currentSha256": "875150ab323a3b6dea1422649c7477511b7c208c247270ac329a2edb88a09181"
+    },
+    {
+      "id": "A06",
+      "groupId": "poke-annoyed",
+      "text": "亲爱的，适可而止。陪我安静一会儿。",
+      "currentPath": "audio-final/A06.wav",
+      "currentSha256": "a2eb9977b2011a46d8c06cb8dc1ceadb7aeb887bbd13949b9adab6c8efadcedd"
+    }
+  ]
+}

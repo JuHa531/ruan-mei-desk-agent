@@ -655,6 +655,9 @@ def parse_music_command(text):
     }
     if q in aliases:
         return aliases[q]
+    if (re.search(r'(?:查询|查看|看看|确认|检查).{0,30}(?:播放状态|音乐状态|播放器状态)', q)
+            or q in ('qq音乐什么状态', '现在qq音乐什么状态', '现在放的是什么歌', '正在放什么歌', '现在在放什么歌')):
+        return 'status'
     if (re.search(r"听歌(?:习惯|喜好|口味|记录)|最近(?:都)?听(?:了)?什么|我(?:平时)?爱听什么", q)
             and not re.search(r"记住|以后|忘记|播放|放一首|想听", q)):
         return "taste"
@@ -769,9 +772,10 @@ def _qqmusic_play_impl(query, kind="song", title=""):
                 return "照这句说：" + MUSIC_LIMITS_TEXT
             try:
                 play_btn.GetInvokePattern().Invoke()
-            except Exception:
-                print("[music] 播放按钮不支持后台 Invoke", file=sys.stderr)
-                return "照这句说：" + MUSIC_LIMITS_TEXT
+            except Exception as e:
+                # Some QQ Music versions play successfully despite a COM error.
+                # The status check below decides whether playback really began.
+                print("[music] 歌单 Invoke 返回异常：%r" % e, file=sys.stderr)
             time.sleep(2.5)
             d = music_control("status", "QQMusic")
             if d.get("STATUS") != "Playing":
@@ -1338,24 +1342,43 @@ def _music_line(d, after=False):
 
 
 def _start_music_without_session(action):
-    """QQ Music creates its SMTC session only after its first playback."""
+    """Start QQ Music and verify playback, even if its Invoke provider raises."""
     import uiautomation as auto
     ok, why = _ensure_qqmusic()
     if not ok:
         return why
     with _MUSIC_UI_LOCK, auto.UIAutomationInitializerInThread():
-        win = _uia_window(auto)
-        if not win:
-            return "没有找到 QQ音乐 主窗口"
-        controls = list(_uia_walk(win))
-        wanted = {"play": ("播放", "播放全部"), "toggle": ("播放", "暂停"),
+        wanted = {"play": ("播放", "继续播放", "播放全部"), "toggle": ("播放", "暂停"),
                   "next": ("下一曲",), "prev": ("上一曲",)}.get(action, ())
-        for name in wanted:
-            candidates = [c for c in controls if c.ControlTypeName == "ButtonControl" and c.Name == name]
-            if candidates:
-                candidates[-1].GetInvokePattern().Invoke()
-                time.sleep(1.5)
-                return ""
+        before = music_control('status', 'QQMusic')
+        if action == 'play' and before.get('STATUS') == 'Playing':
+            return ""
+        # The process/SMTC session appears before Qt's player controls. Reading
+        # that first empty tree once misreported a healthy cold start as a login
+        # failure. Wait for semantic controls; never use a blind media-key toggle.
+        for attempt in range(12):
+            win = _uia_window(auto)
+            controls = list(_uia_walk(win)) if win else []
+            candidates = [c for name in wanted for c in reversed(controls)
+                          if c.ControlTypeName == 'ButtonControl' and c.Name == name]
+            if not candidates:
+                time.sleep(.5)
+                continue
+            for candidate in candidates:
+                try:
+                    candidate.GetInvokePattern().Invoke()
+                except Exception as e:
+                    # Invoke can execute and still raise: check the real state
+                    # before any second operation, especially toggle/next.
+                    print('[music] Invoke %s: %r' % (candidate.Name, e), file=sys.stderr)
+                for _ in range(3):
+                    time.sleep(.5)
+                    current = music_control('status', 'QQMusic')
+                    if (current.get('STATUS') == 'Playing'
+                            and (action not in ('next','prev')
+                                 or current.get('TITLE') != before.get('TITLE'))):
+                        return ""
+            break
     return "播放器没有可用的播放按钮，请先登录并选择歌曲"
 
 
@@ -1422,20 +1445,29 @@ def music(action, app="QQMusic", steps=1, query="", kind="song", title=""):
                          d.get("AFTER_ARTIST") or d.get("ARTIST"))
     except Exception:
         pass
-    # 没有会话但用户就是想听歌 → 先把 QQ音乐 拉起来再试一次
-    if d.get("COUNT", "0") == "0" and act in ("play", "toggle", "next", "prev"):
+    # A session can exist but remain Opened after TryPlayAsync. Verify the
+    # requested state instead of announcing success merely because it exists.
+    status = d.get('AFTER_STATUS') or d.get('STATUS')
+    wants_play = act == 'play' or (act == 'toggle' and d.get('STATUS') != 'Playing')
+    if ((d.get("COUNT", "0") == "0" and act in ("play", "toggle", "next", "prev"))
+            or (wants_play and status != 'Playing')):
         try:
             why = _start_music_without_session(act)
             d = music_control("status", app)
         except Exception as e:
-            why = str(e)[:160]
-        if d.get("COUNT", "0") == "0":
+            print('[music] start failed: %r' % e, file=sys.stderr)
+            why = '播放器暂时没有响应，请检查登录状态后再试一次'
+        if d.get('STATUS') != 'Playing':
             return "照这句说：QQ音乐 还没开始播放，%s。" % (why or "请检查是否需要登录或 VIP")
     if d.get("COUNT", "0") == "0":
         return ("现在没有任何东西在放（Windows 的媒体会话是空的）。"
                 "要我打开 QQ音乐 开始放吗？说一句「放首歌」就行。")
-    if d.get("RESULT", "").lower() == "false":
-        return "照这句说：QQ音乐 没有接受这次操作%s" % _music_line(d, after=True)
+    status = d.get('AFTER_STATUS') or d.get('STATUS')
+    if ((act == 'play' and status != 'Playing')
+            or (act == 'pause' and status not in ('Paused','Stopped','Closed'))
+            or (d.get("RESULT", "").lower() == "false"
+                and not (wants_play and status == 'Playing'))):
+        return "照这句说：QQ音乐 没有接受这次操作%s" % _music_line(d, after=bool(d.get('AFTER_STATUS')))
     if act in ("play", "toggle", "next", "prev"):
         current = music_control("status", app)
         if current.get("STATUS") == "Playing":
@@ -1444,6 +1476,101 @@ def music(action, app="QQMusic", steps=1, query="", kind="song", title=""):
     verb = {"play": "开始放了", "pause": "暂停了", "toggle": "切换了一下",
             "next": "切到下一首了", "prev": "回上一首了", "status": "现在在放"}.get(act, "好了")
     return "照这句说：%s%s" % (verb, _music_line(d, after=bool(d.get("AFTER_STATUS"))))
+
+
+def music_reply_parts(result, action=''):
+    """Keep the verified result, while removing player UI phrasing from dialogue."""
+    raw = str(result or '').removeprefix('照这句说：').strip()
+    raw = re.sub(r'[（(]QQMusic[）)]\s*$', '', raw).strip()
+    title = re.search(r'《([^》]+)》', raw)
+    failed = bool(re.search(r'没能|还没|没有接受|没有任何|工具出错|拒绝|失败|找不到', raw))
+    if not failed and (raw.startswith('开始放了') or re.match(r'已经在.*放上', raw)):
+        fact = '亲爱的，%s已经放上了。' % ('《%s》' % title[1] if title else '音乐')
+        ending = '先听一会儿，不必急着说话。'
+    elif not failed and raw.startswith('暂停了'):
+        fact, ending = '亲爱的，已经暂停了。', '想说什么就说吧，我在听。'
+    elif not failed and raw.startswith(('切到下一首了', '回上一首了')):
+        fact = '亲爱的，%s。' % (('已经换到《%s》了' % title[1]) if title else raw.rstrip('。'))
+        ending = '先听听这一首，再决定要不要留下。'
+    elif not failed and action == 'status' and title:
+        state = '正在播放' if '正在播放' in raw else '已暂停' if '已暂停' in raw else '还没有开始播放'
+        fact = '亲爱的，《%s》%s。' % (title[1], state)
+        ending = '你想继续听，还是换一首？'
+    elif failed:
+        fact = '亲爱的，' + re.sub(r'^\[工具出错\]\s*', '', raw).rstrip('。') + '。'
+        ending = '等播放器准备好，我们再继续。'
+    else:
+        fact = '亲爱的，' + raw.removeprefix('亲爱的，').rstrip('。') + '。'
+        ending = '你继续手边的事，我在这里。'
+    return fact, ending
+
+
+def music_followup_ok(text):
+    """A generated social sentence must not invent another task or song fact."""
+    return (8 <= len(text) <= 80 and not re.search(
+        r'[A-Za-z\d《》`#\[\]{}\n]|亲爱的|已经|已为|查到|查了|记录|收藏|歌单|'
+        r'天气|温度|提醒|下次|以后|每天|常听|最爱|你喜欢|你的口味|'
+        r'我(?:听到|听出|听过)|这(?:首|段).{0,8}(?:轻快|舒缓|温柔|钢琴|吉他)|'
+        r'任务|工具|系统|执行|客户|为您|感叹|[!！]', text))
+
+
+def music_role_model_ready(cfg):
+    """A simple music command must not wait for a cold language model load."""
+    try:
+        with urllib.request.urlopen(cfg['ollama'].rstrip('/') + '/api/ps', timeout=1) as up:
+            loaded = json.load(up).get('models') or []
+        wanted = cfg['model'].removesuffix(':latest')
+        return any(str(item.get('name') or item.get('model') or '').removesuffix(':latest') == wanted
+                   for item in loaded)
+    except Exception:
+        return False
+
+
+def music_reply_chunks(result, action, user_msg, messages, cfg):
+    """Emit facts immediately; let the role model add a grounded personal line."""
+    fact, fallback = music_reply_parts(result, action)
+    yield fact
+    if re.search(r'简短|不用多说|别多说|只(?:要|说|回复).{0,6}(?:结果|完成|一句)', user_msg):
+        return
+    if '已经放上了' in fact:
+        context = ' '.join(str(m.get('content') or '') for m in messages[-3:] if m.get('role') == 'user') + user_msg
+        if re.search(r'累|疲惫|休息|睡不着', context):
+            fallback = '这会儿不必急着做完所有事，先听一会儿。'
+        elif re.search(r'工作|学习|作业|写稿', context):
+            fallback = '你专心做手边的事，不必分神照顾我。'
+        else:
+            choices = ('先听一会儿，不必急着说话。', '你继续手边的事，我在这里。',
+                       '这会儿就慢慢听吧，想聊的时候再开口。')
+            fallback = choices[sum(map(ord, fact + context)) % len(choices)]
+    line = ''
+    if cfg.get('ollama') and cfg.get('model') and music_role_model_ready(cfg):
+        style = ruanmei_setting_text().split('【亲历】', 1)[0]
+        context = '\n'.join(str(m.get('content') or '')[:160] for m in messages[-4:]
+                            if m.get('role') == 'user')
+        try:
+            response = ollama_chat(cfg['ollama'], {
+                'model':cfg['model'], 'think':False, 'stream':False,
+                'messages':[
+                    {'role':'system', 'content':style + '\n现在只补写一句接在任务结果后面的角色回应，'
+                     '不要重复称呼和结果，不要报告另一项操作。平静、自然、略有自己的态度，'
+                     '不要客服式结束语或每次劝休息喝茶。只能依据用户当前话题；'
+                     '未听过音频，不评价曲风、歌词或歌手，不编造偏好和后续安排。'
+                     '正文约15到35字，不解释写作要求。例如普通放歌后可以说：'
+                     '你继续手边的事，我在这里。暂停后可以说：想说什么就说吧，我在听。'},
+                    {'role':'user', 'content':json.dumps({'最近用户话题':context, '本轮请求':user_msg,
+                                                        '刚刚已经说过':fact}, ensure_ascii=False)}],
+                'options':{'temperature':.65, 'num_ctx':CHAT_NUM_CTX, 'num_predict':100}
+            }, timeout=3)
+            candidate = str(response.get('message', {}).get('content') or '').strip()
+            candidate = candidate.removeprefix('亲爱的，').strip('“”" ')
+            mismatched_pause = action == 'pause' and re.search(r'继续.*(?:事|工作|学习)|先听|慢慢听', candidate)
+            implies_playing_after_failure = (re.search(r'还没|没能|没有接受|失败|拒绝|已暂停', fact)
+                                            and re.search(r'先听|慢慢听|继续听', candidate))
+            if music_followup_ok(candidate) and not (mismatched_pause or implies_playing_after_failure):
+                line = candidate
+        except Exception as e:
+            print('[角色回复] 音乐收尾回退：%s' % str(e)[:200], file=sys.stderr)
+    yield ' ' + (line or fallback)
 
 
 def speak_out_loud(text, voice=None, timeout=300):
@@ -1608,7 +1735,12 @@ def ruanmei_setting_text():
             raw = f.read()
         start = raw.index('SYSTEM """') + len('SYSTEM """')
         end = raw.rindex('"""')
-        return raw[start:end].strip()
+        return raw[start:end].strip() + (
+            '\n\n【任务后的表达】执行任务后，用两三句自然短句回应：先准确交代实际结果，'
+            '再接一句贴合用户当前话题、有角色态度的回应。工具输出是事实材料，不是对话台词；'
+            '不要机械抄写状态栏，不必每次劝休息、喝茶或要求用户继续下单。'
+            '未实际听过音频时不评价曲风与音质，不编造偏好或后续操作。'
+            '用户明确只要结果时则从简。')
     except Exception:
         return ""
 
@@ -2047,7 +2179,7 @@ TOOLS = [
                        "· 他问「我爱听什么 / 我的听歌喜好」→ action=taste；"
                        "· 他点名要**某个歌单或某首歌**（比如「播放周杰伦的晴天」「我喜欢歌单」）"
                        "→ 调 action=play_query，query 填歌名或歌单名，kind 填 song 或 playlist；"
-                       "如果它返回「照这句说：…」，就照那句说，不要自己另编；"
+                       "返回结果中的事实必须保留；用人设自然转述，不机械朗读状态栏，不编造已完成的操作；"
                        "· 他说「记住：我爱听 X」这种长期偏好 → 用 remember(section=音乐)。",
         "parameters": {"type": "object", "properties": {
             "action": {"type": "string", "description": "status / play / pause / toggle / next / "
@@ -3606,7 +3738,8 @@ class Handler(LocalRequestHandler):
                     emit({"type": "tool", "name": "music", "args": {"action": music_action}})
                     result = music(music_action)
                     emit({"type": "tool_result", "name": "music", "result": result})
-                    emit({"type": "text", "content": result.removeprefix("照这句说：").strip()})
+                    for part in music_reply_chunks(result, music_action, last_user, raw_messages, self.cfg):
+                        emit({"type": "text", "content": part})
                     emit({"type": "done"})
                     return
                 # 「播放我喜欢的歌单 / 放一首周杰伦的晴天」：服务端直接点播，不叫模型。
@@ -3614,19 +3747,12 @@ class Handler(LocalRequestHandler):
                 spec = parse_music_request(last_user)
                 if spec:
                     kind, query, title = spec
-                    if kind == "playlist" and query in ("我喜欢", "最近播放"):
-                        emit({"type": "text",
-                              "content": "我先按你的听歌记录找找，马上给你放一首。"})
                     emit({"type": "note",
                           "content": "按%s点播：%s" %
                                      ("歌单" if kind == "playlist" else "歌名", query)})
                     answer = qqmusic_play(query, kind, title)
-                    if kind == "playlist" and query in ("我喜欢", "最近播放"):
-                        answer = answer.removeprefix("照这句说：")
-                        if not answer.startswith(("这次没能", "我还没")):
-                            answer = "这首是刚从你的听歌记录里挑的。" + answer
-                    emit({"type": "text",
-                          "content": answer.removeprefix("照这句说：")})
+                    for part in music_reply_chunks(answer, 'play_query', last_user, raw_messages, self.cfg):
+                        emit({"type": "text", "content": part})
                     emit({"type": "done"})
                     return
                 for step in range(8):        # 最多 8 轮工具调用
@@ -3770,8 +3896,16 @@ class Handler(LocalRequestHandler):
                         self._send(200, up.read(), up.headers.get("Content-Type", "audio/wav"))
                     return
                 except Exception as e:
-                    last_err = e
-                    if v != voice:
+                    detail = str(e)
+                    if isinstance(e, urllib.error.HTTPError):
+                        raw = e.read().decode('utf-8', 'replace')
+                        try:
+                            detail = str(json.loads(raw).get('error') or raw)
+                        except (ValueError, AttributeError):
+                            detail = raw or detail
+                    last_err = detail
+                    sys.stderr.write('[语音] %s 合成失败：%s\n' % (v, detail[:1500]))
+                    if v == voice and voice != base_voice:
                         sys.stderr.write("[语气] %s 失败，回落到默认语气\n" % voice)
             self._send(502, json.dumps({"error": str(last_err)[:200]},
                                        ensure_ascii=False).encode("utf-8"),

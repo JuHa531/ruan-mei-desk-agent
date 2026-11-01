@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-31",
+  "generator": "built-in image_gen via imagegen skill",
+  "source": "C:/Users/qqqqq/.codex/generated_images/01a1782e-c02f-74d3-aec5-90c77b12ece4/exec-1d0ae9e8-a422-4369-b5a2-3cbfbe986955.png",
+  "references": [
+    "ruanmei-hands-v2.png (style only)",
+    "rejected palm-facing generated hand (anatomy counterexample)"
+  ],
+  "promptFile": "ruanmei-fork-left-dorsal-v3.prompt.txt",
+  "role": "character's left hand, viewer's right; fork grip only",
+  "view": "dorsal-ulnar; thumb on the far side",
+  "frontDigits": [
+    "index",
+    "middle"
+  ],
+  "farDigits": [
+    "thumb"
+  ],
+  "wrist": [
+    1158,
+    635
+  ],
+  "grip": [
+    435,
+    342
+  ],
+  "preserved": "All other hand parts continue using ruanmei-hands-v2.png"
+}

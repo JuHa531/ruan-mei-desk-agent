@@ -1,0 +1,26 @@
+'use strict';
+const {createServer}=require('node:http'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {chromium}=require('playwright'),root=path.resolve(__dirname,'..'),out=path.join(root,'artifacts');
+const server=createServer((req,res)=>{const url=new URL(req.url,'http://localhost');if(url.pathname==='/review.html'){res.setHeader('Content-Type','text/html');res.end('<!doctype html><body></body>');return;}const file=path.resolve(root,'.'+url.pathname);if(!file.startsWith(root+path.sep)){res.writeHead(403).end();return;}try{res.setHeader('Content-Type',({'.mjs':'text/javascript','.png':'image/png'})[path.extname(file)]||'application/octet-stream');res.end(fs.readFileSync(file));}catch{res.writeHead(404).end();}});
+(async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({channel:'msedge',headless:true});try{const page=await browser.newPage();await page.goto(`http://127.0.0.1:${server.address().port}/review.html`);
+ const result=await page.evaluate(async()=>{
+  const {loadCharacter,drawCharacter}=await import('/renderer/faithful-character.mjs'),{createPetState,applyAction}=await import('/renderer/state.mjs');
+  const {skinArmPoint,armSourceRow}=await import('/renderer/arm-skin.mjs');
+  const rig=await loadCharacter(),c=document.createElement('canvas');c.width=1200;c.height=1600;const ctx=c.getContext('2d');ctx.scale(2,2);const sheet=document.createElement('canvas');sheet.width=1600;sheet.height=1440;const sc=sheet.getContext('2d');sc.fillStyle='#b6c6c5';sc.fillRect(0,0,1600,1440);const checks=[];
+  const layerCanvas=layers=>{const c=Object.assign(document.createElement('canvas'),{width:1090,height:1443}),cx=c.getContext('2d');for(const l of layers){cx.save();cx.transform(...l.m);cx.globalAlpha=l.opacity;cx.drawImage(rig.puppet[l.name].image,0,0);cx.restore();}return c;};
+  const labels=['original','clean','composed'];for(const[i,name]of labels.entries()){const source=name==='original'?rig.images.neutral:name==='clean'?await(async()=>{const im=new Image();im.src='/assets/character/ruanmei-body-clean-v1.png';await im.decode();return im;})():rig.images.body;sc.drawImage(source,310,625,430,400,i*400,30,400,372);sc.fillStyle='#133e43';sc.font='18px sans-serif';sc.fillText(name,i*400+10,20);}
+  let index=0;for(const[pose,time]of[['idle',2],['cake',0],['cake',4.2],['tea',0],['tea',4.2]]){const s={...createPetState(),pose,time,actionTime:time,motionTime:0};drawCharacter(ctx,rig,s,{motionBlur:false,hairMotion:true});const x=index%3*520,y=440+Math.floor(index/3)*480;sc.drawImage(c,350,720,460,420,x,y,520,475);sc.fillStyle='#133e43';sc.fillText(pose+' '+time,x+10,y+20);index++;
+   const frame=rig.actionFrame,arms=Object.assign(document.createElement('canvas'),{width:1090,height:1443}),ac=arms.getContext('2d',{willReadFrequently:true});ac.drawImage(rig.puppet.armRenderer.draw(frame.surfaces),0,0);const pixels=ac.getImageData(0,0,1090,1443).data;let minElbowAlpha=255;
+   for(const surface of frame.surfaces)for(const offset of[-5,0,5])for(const across of[-4,0,4]){const sy=surface.part.elbow[1]+offset,{cx}=armSourceRow(surface.part,sy),p=skinArmPoint(surface,cx+across,sy),i=(Math.round(p[1])*1090+Math.round(p[0]))*4;minElbowAlpha=Math.min(minElbowAlpha,pixels[i+3]||0);}
+   const check={pose,time,minElbowAlpha};
+   if(pose==='cake'){
+    const plateLayer=frame.layers.find(l=>l.name==='cake'),support=layerCanvas(frame.layers.filter(l=>l.name==='hand-support')).getContext('2d').getImageData(0,0,1090,1443).data,plate=layerCanvas([plateLayer]).getContext('2d').getImageData(0,0,1090,1443).data,others=layerCanvas(frame.layers.filter(l=>l.name!=='cake'&&l.name!=='hand-support')).getContext('2d').getImageData(0,0,1090,1443).data,final=rig.sampleLayer.getContext('2d').getImageData(0,0,1090,1443).data;
+    let count=0,error=0,wrongOrderError=0;for(let i=0;i<plate.length;i+=4)if(plate[i+3]>=254&&support[i+3]>32&&others[i+3]<=2){count++;for(let k=0;k<3;k++){error=Math.max(error,Math.abs(final[i+k]-plate[i+k]));wrongOrderError=Math.max(wrongOrderError,Math.abs(support[i+k]-plate[i+k])*support[i+3]/255);}}
+    Object.assign(check,{opaqueTrayOverPalmPixels:count,trayMaxError:error,wrongOrderError});
+   }checks.push(check);
+  }
+  const body=rig.images.body.getContext('2d').getImageData(0,0,1090,1443).data,removedShoulders=[[441,674],[611,678]].map(([x,y])=>body[(y*1090+x)*4+3]);
+  return{sheet:sheet.toDataURL(),checks,removedShoulders};
+ });fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'meimei-joints-review.png'),Buffer.from(result.sheet.split(',')[1],'base64'));delete result.sheet;fs.writeFileSync(path.join(out,'meimei-joints-check.json'),JSON.stringify(result,null,2));
+ for(const c of result.checks){assert.ok(c.minElbowAlpha>=200,JSON.stringify(c));if(c.pose==='cake'){assert.ok(c.opaqueTrayOverPalmPixels>0,JSON.stringify(c));assert.ok(c.wrongOrderError>20,'Check must detect the old palm-over-tray order');assert.ok(c.trayMaxError<=4,JSON.stringify(c));}}assert.deepEqual(result.removedShoulders,[0,0]);console.log(JSON.stringify(result));
+ }finally{await browser.close();server.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,5 +1,25 @@
 # 文件索引
 
+2026-11-01：桌宠动作仅保留待机／点心／双手端杯。`renderer/state.mjs` 与 `electron/host-policy.cjs` 同步移除 F4，旧倾听偏好回退待机；`key-cloud.mjs` 使用梅梅青蓝色板，`settings.css` 统一映射卡片与快捷键提示配色。`settings-window-check.cjs` 验证三动作入口、快捷键与实际计算样式；`key-cloud-preview.cjs` 输出三动作青蓝按键预览。
+
+双手端杯：`renderer/grasp-binding.mjs` 的 `CUP_ART.base`／`SUPPORT_PALM.contact` 定义真实杯底和掌面；`daily-actions.mjs` 为端杯、抬杯和放杯提供双手目标，`puppet-art.mjs` 校准实际掌面接触并将头部跟随位移应用到两只手。`meimei-human-actions-check.cjs` 检查真实杯底接触和嘴部对应。
+
+人物左手握叉素材：`desktop-pet/assets/character/ruanmei-fork-left-dorsal-v3.png` 为内置 imagegen 重绘的手背视角手型，同名 `.prompt.txt`、`.source.json` 记录提示词和来源；只供 `hand-fork` 使用。其余手型仍从 `ruanmei-hands-v2.png` 读取，`grasp-binding.mjs` 区分近侧食指／中指与握柄远侧细节。
+
+握持透视：`desktop-pet/renderer/grasp-binding.mjs` 保存原画指缝、叉柄细杆、杯柄内环与拇指／食指前景轮廓；`puppet-art.mjs` 将其用于分层绘制与逆向拾取，`daily-actions.mjs` 用相同素材比例定义道具接触。`meimei-human-actions-check.cjs` 检查真实指缝透明度和露出细柄像素，避免仅测坐标对齐而漏掉错误握持。
+
+2026-10-31：`desktop-pet/renderer/daily-actions.mjs` 定义交叠待机、上方落叉、分离小口、抬起／撤叉、单手握杯与放回；叉尖、杯柄、杯沿使用显式接触锚点，`puppet-art.mjs` 校准到真实素材坐标并限制前置指尖的接触范围。`scripts/meimei-human-actions-check.cjs` 验证实际 GPU 盘面遮挡、素材接触点以及转头时的嘴／耳对应。`app/agent_server.py` 等待 QQ 播放控件加载。`scripts/gptsovits_train_wrapper.py` 初始化首步学习率，`finetune_tts.py --s1-learning-rate` 可设置固定值；不修改上游推理源码。
+
+桌宠延迟：`desktop-pet/renderer/faithful-character.mjs` 根据实际画布尺寸控制离屏分辨率；`motion-blur.mjs` 根据可见位移选择短曝光次数；`state.mjs` 使用真实时间并单独细分弹簧积分；`cursor-trail.cjs` 与 `cursor-trail-paint.mjs` 计入 IPC 时间。对照脚本 `meimei-performance-check.cjs`，说明 `docs/DESKTOP_PET_PERFORMANCE.md`。`app/window_focus.py` 由桌宠设置就绪事件触发父进程激活，并处理返回主窗口。
+
+桌宠动作演出：`desktop-pet/renderer/action-motion.mjs` 定义伸手、拿入点心、变杯、进食、抿茶与收回时间线；`puppet-art.mjs` 绑定净身图、连续手臂、手掌与道具，负责承托掌在后、盘杯在中、抓握指尖在前的遮挡。`arm-skin.mjs` 将 `ruanmei-continuous-arms-v3.png` 蒙皮到三维 IK 的肩／肘／腕，肘部混合保持横向宽度，原身体不再残留另一套肩膀。GPU 渲染、逆向拾取和窗口包络使用相同形变。`pose-transition.mjs` 提供动作选择兼容入口；生产渲染不再切换整张姿态图。`motion-blur.mjs` 对完整动作采样，`hit-region.mjs` 结合缓存身体范围与手臂／道具的短期运动范围。`scripts/meimei-action-check.cjs --record` 检查 6 种切换和 48 个窗口覆盖样本；`meimei-shoulder-check.cjs` 检查肩部所有权、连续手肘及真实盘沿／手掌遮挡并输出近景。新素材提示词在 `assets/character/ruanmei-puppet-generation.md`。
+
+桌宠骨骼：`desktop-pet/renderer/skeleton.mjs` 定义 28 个身体骨骼、父子层级、旋转矩阵、四项归一化权重及运动包络；`arm-kinematics.mjs` 单独求解定长上臂／前臂／手掌的三维关节再正交投影，保留肘部向外的弯曲方向，并限制手腕相对前臂最多 25 度，防止端盘或抬手反折。`head-tracking.mjs` 负责头颈角度，`body-regions.mjs`、`mesh-envelope.mjs` 和 `puppet-art.mjs` 同步点击与窗口范围。新增 `tests/arm-kinematics.test.mjs` 专门检查抬手／放下的连续性与关节朝向。
+
+桌宠入口在梅梅顶栏「桌宠」。`app/pet_controller.py` 管理内置组件、私有命名管道及 Windows Job Object 退出清理；`app/desktop.py` 提供桌面 API，`app/agent.html` 提供开关与大小控制。说明见 `docs/DESKTOP_PET.md`、`desktop-pet/README.md`。`desktop-pet/electron/` 是透明窗口与原生交互；`desktop-pet/renderer/facial-rig.mjs`、`mesh-rig.mjs` 绑定同一立绘的虹膜／眼睑与身体；`motion-blur.mjs` 提供短曝光采样。`desktop-pet/assets/` 存阮梅美术和 54 条本机语音，`tests/` 为回归检查；`scripts/check_pet_mode.py` 检查实际组件生命周期。构建目录 `desktop-pet/release/win-unpacked` 由梅梅调用，不提供独立桌面启动入口。
+
+D1 英文：`voice/english_client.py`（本机子进程、缓存、故障回退），`voice/english_worker.py`（逐句生成与角色音色重建），`voice/english.example.json`（可选配置模板），`scripts/test_english_route.py`（中文保持、英文分流和故障回退回归）。
+
 | 文件 | 用途 |
 | --- | --- |
 | `.gitattributes` | Normalizes line endings and marks image files as binary. |
@@ -72,6 +92,7 @@
 | `app/assets/window.ico` | Dedicated window icon used by the desktop shell. |
 | `app/assets/说明.txt` | Source and usage notes for the bundled visual assets. |
 | `app/desktop.py` | PyWebView2 desktop shell, frameless window controls, service startup, health watching, and cache-busting. |
+| `app/window_focus.py` | 从桌宠工作线程恢复和激活主窗口，完成后释放临时置顶。 |
 | `app/index.html` | Legacy single-page chat interface used by `app/server.py`. |
 | `app/local_security.py` | 本机请求与文件访问边界。 |
 | `app/ocr_image.ps1` | Local Windows OCR helper used by the image-reading tool. |
@@ -140,6 +161,8 @@
 | `scripts/smoke_office_tools.py` | Exercises every Office/video helper and verifies generated outputs. |
 | `scripts/test_agent_office.py` | End-to-end tool-calling test for document generation. |
 | `scripts/test_agent_regressions.py` | Routing, music records, Android selection, video input preservation, ASR cleanup, and TTS signal rejection/retry checks. |
+| `scripts/test_music_voice_recovery.py` | Verifies QQ Music playback state after COM errors, prevents false success, and checks speech error and dependency health reporting. |
+| `scripts/test_bilingual_role.py` | Checks bilingual pronunciation routing, unchanged Chinese voice settings, and factual, role-aware music replies. |
 | `scripts/test_reply_expression.mjs` | Checks restrained tone selection, reply-based stickers, streaming tone selection, and replay timing. |
 | `scripts/test_security.py` | 11 security regressions for HTTP, paths, confirmations, history, shortcuts and TTS input types. |
 | `scripts/test_speech_queue.mjs` | Queue release, interruption isolation, and complete speech chunking for song recommendations. |

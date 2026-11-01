@@ -2,6 +2,8 @@
 
 素材导入、数据整理、语音处理、模型工具和界面回归测试脚本。
 
+`start_pet_services.py`：仅供桌宠开发预览启动缺少的本机服务；日常使用由梅梅 `app/desktop.py` 统一启动，入口为主界面顶栏「桌宠」。`check_pet_mode.py`：检查真实内置组件的启停、大小、返回主界面以及正常／异常退出清理。`test_music_query.py`：验证明确的 QQ 音乐播放状态查询不会被解析成点播。
+
 ## 数据与素材
 
 | 文件 | 作用 |
@@ -65,3 +67,12 @@
 | `check_wake.mjs` | 检查唤醒词行为。 |
 
 | `README.md` | 本目录的用途和文件清单。 |
+| `test_music_voice_recovery.py` | 音乐播放状态、COM 异常恢复、语音错误透传和资源状态回归。 |
+| `test_bilingual_role.py` | 中英文读法、中文音色参数保持、任务事实与角色回应的边界。 |
+# D1 英文检查
+
+`test_english_route.py` 验证中文请求保持原样、英文路由、错误回退、文本分句及可选配置损坏时的启动行为；无需加载模型。`doctor.py` 会检查启用的独立英文环境及权重。
+
+`test_window_focus.py` 检查桌宠返回主界面的激活、最小化恢复、临时置顶释放和输入线程解绑；`check_window_focus.py` 对正在运行的梅梅执行实际窗口检查。`check_pet_mode.py` 另检查打包组件设置打开时自动置顶／激活、最小化后再次打开、组件启停与异常退出清理。
+
+语音训练：`finetune_tts.py --s1-learning-rate 0.00005` 可在独立实验中使用固定小学习率；`gptsovits_train_wrapper.py` 从首次更新就写入 `lr_init`，避免优化器默认 0.01 的首次大步更新，并关闭后台 Rich 进度输出。`--validate-only` 只检查清单／参数，不训练；生产权重必须与实验名分开保存。

@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- Transparent desktop character. Settings are available from the system tray. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>阮梅桌宠 / MeiMei_desktop_pet</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main id="stage" aria-label="阮梅桌宠，轻点头部摸头，连续点五次会假装生气；拖动人物移动，按住鼠标右键滚动缩放；设置位于系统托盘">
+    <canvas id="pet" width="600" height="800" aria-label="独立站姿阮梅"></canvas>
+    <p id="loading" role="status">阮梅正在换好衣服…</p>
+  </main>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
