@@ -67,7 +67,7 @@ function renderHistory() {
       article.append(meta, body, status); node = { article, meta, body, status }; historyMessageNodes.set(message.id, node);
     }
     node.article.dataset.role = message.role;
-    setText(node.meta, `${message.role === 'user' ? message.username || '你' : '阮梅'} · ${date(message.createdAt)}`);
+    setText(node.meta, `${message.role === 'user' ? message.username || '你' : '阮·梅'} · ${date(message.createdAt)}`);
     setText(node.body, message.content || (message.status === 'streaming' ? '正在回答…' : '没有收到完整回答。'));
     const statuses = { streaming: '正在回答', error: '回答未完成', cancelled: '已停止' };
     setText(node.status, statuses[message.status] || ''); node.status.hidden = !statuses[message.status];

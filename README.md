@@ -50,3 +50,7 @@ QQ 音乐需要安装并登录；安卓操作需要连接设备并授权 ADB。�
 远程控制需另配鉴权网关。仓库不包含模型权重、私人聊天、习惯记录和音色原始素材。
 
 [组件与配置](docs/DEPENDENCIES.md) · [功能范围](docs/CAPABILITIES.md) · [语音配置](VOICE.md) · [安全边界](docs/SECURITY_REVIEW.md)
+
+## 对话模型 API
+
+顶栏「设置 → 模型与 API」可配置 GPT / OpenAI、DeepSeek、Claude 或 OpenAI 兼容服务的基础地址、模型 ID 和 API 密钥，并测试连接。可随时切回本地 Ollama；共享现有人设、记忆、工具和本地角色语音。密钥使用 Windows 账户加密保存，云端调用会发送相关对话和工具结果。详见 [配置说明](docs/MODEL_API.md)。

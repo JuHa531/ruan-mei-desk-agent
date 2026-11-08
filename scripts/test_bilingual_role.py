@@ -17,6 +17,12 @@ import tts_server as tts
 
 
 class BilingualRole(unittest.TestCase):
+    def test_parenthetical_pauses_keep_contents_and_final_stop(self):
+        self.assertEqual(tts.clean_for_speech('亲爱的，（不用急），我在这里。'),
+                         '亲爱的，不用急，我在这里。')
+        self.assertEqual(tts.clean_for_speech('先休息（也可以喝杯茶）。'),
+                         '先休息，也可以喝杯茶。')
+
     def setUp(self):
         ready = patch.object(agent, 'music_role_model_ready', return_value=True)
         ready.start(); self.addCleanup(ready.stop)
@@ -105,7 +111,7 @@ class BilingualRole(unittest.TestCase):
 
     def test_role_model_adds_personal_line_after_immutable_fact(self):
         line = '你继续手边的事，我在这里。'
-        with patch.object(agent, 'ollama_chat', return_value={'message':{'content':line}}) as llm:
+        with patch.object(agent, 'model_chat', return_value={'message':{'content':line}}) as llm:
             parts = list(agent.music_reply_chunks('照这句说：开始放了：《Love Story》，正在播放。',
                          'play', '帮我放首歌', [], {'ollama':'http://unused', 'model':'role'}))
         self.assertEqual(parts[0], '亲爱的，《Love Story》已经放上了。')
@@ -114,26 +120,26 @@ class BilingualRole(unittest.TestCase):
 
     def test_generated_facts_and_model_failures_fall_back(self):
         for text in ('我已经把下一首加入歌单了。', '这首歌的钢琴很温柔。', '你最爱听这首歌了。'):
-            with patch.object(agent, 'ollama_chat', return_value={'message':{'content':text}}):
+            with patch.object(agent, 'model_chat', return_value={'message':{'content':text}}):
                 reply = ''.join(agent.music_reply_chunks('照这句说：开始放了：《晴天》，正在播放。',
                             'play', '放歌', [], {'ollama':'unused', 'model':'role'}))
             self.assertNotIn(text, reply)
             self.assertGreater(len(reply.split('。')), 2)
-        with patch.object(agent, 'ollama_chat', side_effect=TimeoutError('busy')):
+        with patch.object(agent, 'model_chat', side_effect=TimeoutError('busy')):
             reply = ''.join(agent.music_reply_chunks('照这句说：暂停了。','pause','暂停',[],
                                                    {'ollama':'unused','model':'role'}))
         self.assertIn('已经暂停', reply)
         self.assertIn('我在听', reply)
 
     def test_explicit_concise_request_is_respected(self):
-        with patch.object(agent, 'ollama_chat') as llm:
+        with patch.object(agent, 'model_chat') as llm:
             parts = list(agent.music_reply_chunks('照这句说：暂停了。','pause','只要结果',[],{'ollama':'unused','model':'role'}))
         self.assertEqual(len(parts), 1)
         llm.assert_not_called()
 
     def test_cold_model_does_not_delay_music_and_context_is_kept(self):
         with patch.object(agent, 'music_role_model_ready', return_value=False), \
-                patch.object(agent, 'ollama_chat') as llm:
+                patch.object(agent, 'model_chat') as llm:
             reply = ''.join(agent.music_reply_chunks('照这句说：开始放了：《晴天》，正在播放。',
                             'play', '帮我放首歌', [{'role':'user','content':'我今天有点累'}],
                             {'ollama':'unused','model':'role'}))
@@ -142,7 +148,7 @@ class BilingualRole(unittest.TestCase):
         llm.assert_not_called()
 
     def test_pause_does_not_tell_user_to_keep_working(self):
-        with patch.object(agent, 'ollama_chat', return_value={'message':{'content':'你继续手边的事，我在这里。'}}):
+        with patch.object(agent, 'model_chat', return_value={'message':{'content':'你继续手边的事，我在这里。'}}):
             reply = ''.join(agent.music_reply_chunks('照这句说：暂停了。','pause','我想和你说说话',[],
                                                    {'ollama':'unused','model':'role'}))
         self.assertNotIn('继续手边', reply)

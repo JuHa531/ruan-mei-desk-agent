@@ -382,7 +382,7 @@ async function createWindow() {
     show: false, frame: false, thickFrame: false, transparent: true, backgroundColor: '#00000000',
     resizable: false, maximizable: false, fullscreenable: false,
     alwaysOnTop: preferences.alwaysOnTop, skipTaskbar: true, hasShadow: false,
-    title: '阮梅桌宠', icon: createAppImage(nativeImage),
+    title: '阮·梅桌宠', icon: createAppImage(nativeImage),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false, devTools: !app.isPackaged },
   });
   topmost=createTopmostController(pet,{enabled:preferences.alwaysOnTop,taskbarInFront:preferences.taskbarInFront,
@@ -575,7 +575,7 @@ else {
     });
     registerIpc();
     tray = new Tray(createTrayImage(nativeImage));
-    tray.setToolTip(isManaged?'梅梅 · 桌宠模式 · Ctrl+Alt+P 恢复操作':`阮梅桌宠 ${app.getVersion()} · Ctrl+Alt+P 恢复操作`);
+    tray.setToolTip(isManaged?'梅梅 · 桌宠模式 · Ctrl+Alt+P 恢复操作':`阮·梅桌宠 ${app.getVersion()} · Ctrl+Alt+P 恢复操作`);
     tray.on('click', () => tray.popUpContextMenu(buildMenu()));
     tray.on('right-click', () => tray.popUpContextMenu(buildMenu()));
     hotkeys.recovery = globalShortcut.register('CommandOrControl+Alt+P', () => recover());

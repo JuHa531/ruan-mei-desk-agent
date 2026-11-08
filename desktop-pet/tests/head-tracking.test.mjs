@@ -24,12 +24,12 @@ test('all 28 bones preserve scale, orthogonality and parent-child bind lengths',
   }
  }
 });
-test('head tracking preserves facial proportions and leaves the shoulders, collar and chest fixed',()=>{
+test('head tracking preserves facial proportions and allows only a small coordinated shoulder rotation',()=>{
  const face=[[350,515],[450,510],[590,465],[710,510],[531,580]];
  const body=[[435,700],[610,700],[495,650],[530,650],[500,735],[560,780],[520,812],[500,950]];
  for(const pose of['idle','cake','tea'])for(const x of[-1,0,1])for(const y of[-1,0,1]){
   const head={x,y},draw=p=>deformPoint(...p,0,false,false,pose,0,head);
-  for(const p of body)assert.ok(Math.hypot(draw(p)[0]-p[0],draw(p)[1]-p[1])<.001,pose+' body '+p);
+  for(const p of body)assert.ok(Math.hypot(draw(p)[0]-p[0],draw(p)[1]-p[1])<1.5,pose+' body '+p);
   for(let i=1;i<face.length;i++){
    const a=draw(face[0]),b=draw(face[i]);
    assert.ok(Math.abs(Math.hypot(a[0]-b[0],a[1]-b[1])-Math.hypot(face[0][0]-face[i][0],face[0][1]-face[i][1]))<.001,'Head must remain a rigid shape');

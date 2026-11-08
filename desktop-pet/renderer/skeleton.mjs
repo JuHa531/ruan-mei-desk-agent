@@ -15,8 +15,8 @@ const definitions=[
  ['upper-arm-right',2,620,697,.002],['forearm-right',12,648,834,.003],['hand-right',13,566,925,.002],
  ['thigh-left',0,470,1040,.005],['shin-left',15,502,1180,.009],['foot-left',16,508,1330,.004],
  ['thigh-right',0,575,1040,.005],['shin-right',18,595,1170,.009],['foot-right',19,615,1330,.004],
- ['skirt',0,530,880,.015],['ribbon-left',0,390,1000,.022],['ribbon-right',0,700,1040,.022],
- ['sleeve-left',9,420,730,.012],['sleeve-right',12,620,730,.012],['tuft',4,832,202,-.016],['crown',4,540,180,-.006],
+ ['skirt',0,530,880,.028],['ribbon-left',0,390,1000,.052],['ribbon-right',0,700,1040,.048],
+ ['sleeve-left',9,420,730,.020],['sleeve-right',12,620,730,.020],['tuft',4,832,202,-.016],['crown',4,540,180,-.006],
 ];
 export const BONES=Object.freeze(definitions.map(([name,parent,x,y,sway],id)=>Object.freeze({id,name,parent,pivot:Object.freeze([x,y]),sway})));
 export const BONE=Object.freeze(Object.fromEntries(BONES.map(b=>[b.name,b.id])));
@@ -44,6 +44,11 @@ export function sampleSkeleton(time=0,{enabled=true,amplitude=1,head={},pose='id
  const phase=Math.sin(time*.9)*.55*amplitude;
  for(const bone of bones){
   let angle=bone.sway*phase;
+  // Free fabric lags the torso; normalized harmonics retain the analytic bounds.
+  const clothPhase={'skirt':.55,'ribbon-left':1.05,'ribbon-right':1.65,'sleeve-left':.35,'sleeve-right':.8}[bone.name];
+  if(clothPhase!==undefined)angle=bone.sway*.55*amplitude*(
+   .76*Math.sin(time*.9-clothPhase)+.24*Math.sin(time*1.8-clothPhase*1.3));
+  if(bone.name==='chest')angle+=angles.chest;
   if(bone.name==='neck')angle=angles.neck;
   if(bone.name==='head')angle=angles.head;
   angle+=Math.max(-.03,Math.min(.03,gesture[bone.name]||0));
@@ -154,8 +159,9 @@ export function skinMotionBounds(x,y,{enabled=true,amplitude=1,headTracking=fals
   let idleAngle=0,lookAngle=0;
   for(let j=0;j<chain.length;j++){
    const bone=bones[chain[j]],next=j+1<chain.length?bones[chain[j+1]].pivot:[x,y];
-   if(headTracking&&bone.name==='neck')lookAngle=look.neck;
-   else if(headTracking&&bone.name==='head')lookAngle=look.combined;
+   if(headTracking&&bone.name==='chest')lookAngle=look.chest;
+   else if(headTracking&&bone.name==='neck')lookAngle=look.chest+look.neck;
+   else if(headTracking&&bone.name==='head')lookAngle=look.chest+look.combined;
    idleAngle+=Math.abs(bone.sway)*.55*(enabled?clamp(amplitude,0,2):0);
    const angle=idleAngle+lookAngle;
    const bounds=rotationBounds(next[0]-bone.pivot[0],next[1]-bone.pivot[1],angle);

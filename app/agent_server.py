@@ -51,6 +51,9 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from local_security import LocalRequestHandler, canonical_path, path_within, bounded_matches
 
+from model_api import SETTINGS as MODEL_SETTINGS, cloud_chat
+from agent_permissions import SETTINGS as PERMISSIONS, authorized, approval_scope, sensitive, tool_limits
+
 import office_tools          # 同目录：PPT / Word / Excel / 视频这几个产出型工具
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -641,7 +644,7 @@ _MUSIC_UI_LOCK = threading.RLock()
 def parse_music_command(text):
     """常用短命令直接执行，避免小模型只承诺却不调用播放器。"""
     q = re.sub(r"[\s，。！？!?、,.]", "", str(text or "")).lower()
-    q = re.sub(r"^(?:亲爱的|梅梅|阮梅)?(?:请|麻烦)?(?:帮我|给我)?", "", q)
+    q = re.sub(r"^(?:亲爱的|梅梅|阮[·・]?梅)?(?:请|麻烦)?(?:帮我|给我)?", "", q)
     q = re.sub(r"(?:一下|吧|好吗|谢谢)$", "", q)
     aliases = {
         "放歌": "play", "放首歌": "play", "放一首歌": "play", "放音乐": "play",
@@ -1515,6 +1518,8 @@ def music_followup_ok(text):
 
 
 def music_role_model_ready(cfg):
+    if (cfg.get("_model_profile") or {}).get("provider", "local") != "local":
+        return True
     """A simple music command must not wait for a cold language model load."""
     try:
         with urllib.request.urlopen(cfg['ollama'].rstrip('/') + '/api/ps', timeout=1) as up:
@@ -1548,7 +1553,7 @@ def music_reply_chunks(result, action, user_msg, messages, cfg):
         context = '\n'.join(str(m.get('content') or '')[:160] for m in messages[-4:]
                             if m.get('role') == 'user')
         try:
-            response = ollama_chat(cfg['ollama'], {
+            response = model_chat(cfg, {
                 'model':cfg['model'], 'think':False, 'stream':False,
                 'messages':[
                     {'role':'system', 'content':style + '\n现在只补写一句接在任务结果后面的角色回应，'
@@ -2440,6 +2445,8 @@ def safe_path(workdir, rel, extra_read=()):
     """
     p = canonical_path(os.path.join(workdir, rel or "."))
     wd = canonical_path(workdir)
+    if authorized():
+        return p
     # Resolve symlinks/junctions before checking containment, including new files.
     if os.name=='nt' and ':' in os.path.splitdrive(p)[1]:
         raise ValueError('不允许使用NTFS备用数据流路径')
@@ -2563,6 +2570,8 @@ DANGEROUS = (
 
 
 def guard_command(cmd):
+    if authorized():
+        return
     low = " ".join((cmd or "").lower().split())
     for bad in DANGEROUS:
         if bad in low:
@@ -2579,10 +2588,14 @@ HIGH_RISK_CMD = (r"\bdel\b", r"\brd\b", r"\brmdir\b", r"remove-item",
 
 
 def is_denied_action(user_msg):
+    if authorized():
+        return False
     return bool(re.search(r'不(?:要|许|能|可以|同意|允许|安装|装|关闭|退出|执行|删除|确认|确定|需要|必|用)|无需|不是|没有(?:确认|同意|允许)|别(?:再)?|暂不|取消|未确认',str(user_msg or '')))
 
 
 def is_confirmed(user_msg):
+    if authorized():
+        return True
     t = str(user_msg or "").lower()
     if is_denied_action(t):
         return False
@@ -3181,6 +3194,15 @@ def ollama_chat(base, payload, timeout=900):
         raise RuntimeError("Ollama 返回 %d：%s" % (e.code, detail or "(没有说明)")) from None
 
 
+def model_chat(cfg, payload, timeout=900):
+    profile = cfg.get('_model_profile') or MODEL_SETTINGS.snapshot()
+    if profile['provider'] == 'local':
+        payload = dict(payload)
+        payload['model'] = profile.get('model') or cfg['model']
+        return ollama_chat(cfg['ollama'], payload, timeout=timeout)
+    return cloud_chat(profile, payload, timeout=min(timeout, 120))
+
+
 class Handler(LocalRequestHandler):
     cfg = {}
     appearance = {"bg_type": "none", "bg_file": "", "icon": ""}
@@ -3266,6 +3288,15 @@ class Handler(LocalRequestHandler):
                 "icons": icons}, ensure_ascii=False),
                 "application/manifest+json; charset=utf-8")
             return
+        if p == "/api/permissions":
+            self._send(200, json.dumps({"mode": PERMISSIONS.mode}), "application/json")
+            return
+        if p == "/api/model-settings":
+            try:
+                self._send(200, json.dumps(MODEL_SETTINGS.public(), ensure_ascii=False), "application/json")
+            except ValueError as e:
+                self._send(400, json.dumps({"error": str(e)}), "application/json")
+            return
         if p == "/api/config":
             self._send(200, json.dumps(self._public_config(),
                                        ensure_ascii=False),
@@ -3274,6 +3305,7 @@ class Handler(LocalRequestHandler):
         if p == "/api/status":
             self._send(200, json.dumps({
                 "runtime_python": sys.executable,
+                "model_api": MODEL_SETTINGS.public(),
                 "ollama": self._reachable(self.cfg["ollama"] + "/api/tags"),
                 "tts": self._reachable(self.cfg["tts"] + "/healthz"),
                 "asr": self._reachable(self.cfg["asr"] + "/healthz"),
@@ -3375,6 +3407,38 @@ class Handler(LocalRequestHandler):
 
     def do_POST(self):
         p = self.path.split("?")[0]
+        if p in ('/api/permissions', '/api/approve', '/api/agent-cancel'):
+            try:
+                body = self._json_body()
+                if p == '/api/permissions':
+                    result = PERMISSIONS.save(body.get('mode'))
+                elif p == '/api/approve':
+                    PERMISSIONS.decide(body.get('token'), body.get('allow'))
+                    result = {'ok': True}
+                else:
+                    PERMISSIONS.cancel(body.get('request_id'))
+                    result = {'ok': True}
+                self._send(200, json.dumps(result), 'application/json')
+            except (ValueError, TypeError) as error:
+                self._send(400, json.dumps({'error': str(error)}), 'application/json')
+            return
+        if p in ("/api/model-settings", "/api/model-test"):
+            try:
+                req = self._json_body()
+                if p == "/api/model-settings":
+                    result = MODEL_SETTINGS.save(req)
+                else:
+                    profile = MODEL_SETTINGS.snapshot(MODEL_SETTINGS.prepare(req))
+                    test_cfg = dict(self.cfg, _model_profile=profile)
+                    response = model_chat(test_cfg, {
+                        "model": self.cfg['model'], "stream": False,
+                        "messages": [{"role": "user", "content": "Reply with OK only."}],
+                    }, timeout=30)
+                    result = {"ok": True, "message": "连接成功，模型已返回正文"}
+                self._send(200, json.dumps(result, ensure_ascii=False), "application/json")
+            except (ValueError, RuntimeError, OSError) as e:
+                self._send(400, json.dumps({"error": str(e)}, ensure_ascii=False), "application/json")
+            return
         if p == "/api/upload_image":
             try:
                 from PIL import Image, ImageOps
@@ -3626,6 +3690,11 @@ class Handler(LocalRequestHandler):
                     item['images']=message['images'][:3]
                 cleaned.append(item)
             raw_messages=cleaned
+            try:
+                turn_cfg = dict(self.cfg, _model_profile=MODEL_SETTINGS.snapshot())
+            except (ValueError, KeyError) as e:
+                self._send(400, json.dumps({"error": str(e)}), "application/json")
+                return
             workdir = self.cfg["workdir"]
             base = self.cfg["ollama"]
 
@@ -3710,11 +3779,43 @@ class Handler(LocalRequestHandler):
                 self.wfile.write((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
                 self.wfile.flush()
 
+            request_id = req.get('request_id') or uuid.uuid4().hex
+            try:
+                cancelled = PERMISSIONS.begin(request_id)
+            except ValueError as error:
+                emit({'type': 'error', 'content': str(error)})
+                emit({'type': 'done'})
+                return
+            permission_mode = PERMISSIONS.mode
+            max_rounds, max_calls = tool_limits(last_user)
+            tool_count = 0
+            tool_rounds = 0
+
+            def run_tool(name, args, callback=None):
+                nonlocal tool_count
+                if cancelled.is_set():
+                    raise RuntimeError('任务已停止')
+                if max_rounds == 0:
+                    raise RuntimeError('本次需求限定为零轮工具调用')
+                if max_calls is not None and tool_count >= max_calls:
+                    raise RuntimeError('已达到你指定的工具调用数量上限')
+                if permission_mode == 'ask' or (permission_mode == 'auto' and
+                        sensitive(name, args, workdir, is_high_risk_command)):
+                    PERMISSIONS.ask(request_id, name, args, emit, cancelled)
+                if cancelled.is_set():
+                    raise RuntimeError('任务已停止')
+                tool_count += 1
+                with approval_scope():
+                    return callback() if callback else exec_tool(name, args, workdir,
+                        self.cfg.get('extra_read') or (), base, last_user)
+
             if dropped:
                 emit({"type": "note",
                       "content": "上下文较长，已省略较早的 %d 条消息" % dropped})
 
             try:
+                if permission_mode == 'ask':
+                    PERMISSIONS.ask(request_id, '本次需求', {'需求': last_user}, emit, cancelled)
                 nudged = False
                 nudged_action = 0
                 nudged_casual = False
@@ -3723,8 +3824,7 @@ class Handler(LocalRequestHandler):
                     for image_path in attached_images[:3]:
                         args = {"path": str(image_path), "question": last_user}
                         emit({"type": "tool", "name": "see_image", "args": args})
-                        result = exec_tool("see_image", args, workdir,
-                                           self.cfg.get("extra_read") or (), base, last_user)
+                        result = run_tool("see_image", args)
                         emit({"type": "tool_result", "name": "see_image", "result": result[:6000]})
                         marker = re.search(r"\[画面描述 · [^\n]+\]\n", result)
                         answer = result[marker.end():] if marker else (
@@ -3736,9 +3836,9 @@ class Handler(LocalRequestHandler):
                 music_action = parse_music_command(last_user)
                 if music_action:
                     emit({"type": "tool", "name": "music", "args": {"action": music_action}})
-                    result = music(music_action)
+                    result = run_tool("music", {"action": music_action})
                     emit({"type": "tool_result", "name": "music", "result": result})
-                    for part in music_reply_chunks(result, music_action, last_user, raw_messages, self.cfg):
+                    for part in music_reply_chunks(result, music_action, last_user, raw_messages, turn_cfg):
                         emit({"type": "text", "content": part})
                     emit({"type": "done"})
                     return
@@ -3750,13 +3850,18 @@ class Handler(LocalRequestHandler):
                     emit({"type": "note",
                           "content": "按%s点播：%s" %
                                      ("歌单" if kind == "playlist" else "歌名", query)})
-                    answer = qqmusic_play(query, kind, title)
-                    for part in music_reply_chunks(answer, 'play_query', last_user, raw_messages, self.cfg):
+                    answer = run_tool("music", {"action": "play_query", "query": query},
+                                      lambda: qqmusic_play(query, kind, title))
+                    for part in music_reply_chunks(answer, 'play_query', last_user, raw_messages, turn_cfg):
                         emit({"type": "text", "content": part})
                     emit({"type": "done"})
                     return
-                for step in range(8):        # 最多 8 轮工具调用
-                    resp = ollama_chat(base, {
+                step = -1
+                while True:
+                    step += 1
+                    if cancelled.is_set():
+                        raise RuntimeError('任务已停止')
+                    resp = model_chat(turn_cfg, {
                         "model": self.cfg["model"],
                         "messages": messages,
                         **({"tools": turn_tools} if turn_tools else {}),
@@ -3766,6 +3871,8 @@ class Handler(LocalRequestHandler):
                         # 却不真的调工具"。实测降到 0.4 明显稳定（见 README 的 agent 那节）。
                         "options": {"temperature": 0.4, "num_ctx": turn_num_ctx},
                     })
+                    if cancelled.is_set():
+                        raise RuntimeError('任务已停止')
                     print("[推理] ctx=%d load=%.2fs prompt=%.2fs reply=%.2fs tokens=%s" % (
                         turn_num_ctx, resp.get("load_duration", 0) / 1e9,
                         resp.get("prompt_eval_duration", 0) / 1e9,
@@ -3809,6 +3916,9 @@ class Handler(LocalRequestHandler):
                             text = fallback_casual_reply(last_user)
                         emit({"type": "text", "content": text})
                         break
+                    if max_rounds is not None and tool_rounds >= max_rounds:
+                        raise RuntimeError('已达到你指定的工具轮数上限')
+                    tool_rounds += 1
                     messages.append(msg)
                     for tc in calls:
                         fn = tc.get("function", {})
@@ -3819,21 +3929,22 @@ class Handler(LocalRequestHandler):
                                 args = json.loads(args)
                             except Exception:
                                 args = {}
+                        allowed_names = {t['function']['name'] for t in turn_tools}
+                        if name not in allowed_names or not isinstance(args, dict):
+                            raise RuntimeError("模型请求了本轮未开放的工具，已停止执行")
                         emit({"type": "tool", "name": name, "args": args})
                         if name in ACT_TOOLS:
                             acted = True
-                        result = exec_tool(name, args, workdir,
-                                           self.cfg.get("extra_read") or (),
-                                           self.cfg.get("ollama") or "",
-                                           last_user)
+                        result = run_tool(name, args)
                         emit({"type": "tool_result", "name": name,
                               "result": result[:3000]})
                         messages.append({"role": "tool",
+                                         **({"tool_call_id": tc["id"]} if tc.get("id") else {}),
                                          "content": compact_tool_result(name, result)})
-                else:
-                    emit({"type": "text", "content": "（工具调用已达上限 8 轮，先停在这里）"})
             except Exception as e:
                 emit({"type": "error", "content": str(e)[:400]})
+            finally:
+                PERMISSIONS.finish(request_id)
             emit({"type": "done"})
             return
 

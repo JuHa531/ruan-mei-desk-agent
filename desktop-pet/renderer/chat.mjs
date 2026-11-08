@@ -18,7 +18,7 @@ function makeMessageAction(action, label, paths) {
 }
 async function messageAction(node, action) {
   if (!snapshot || !node.message?.content?.trim() || node.actionPending) return;
-  if (action === 'read-aloud' && (node.message.status === 'streaming' || snapshot.busy || messageActionPending)) return;
+  if (action === 'read-aloud' && (node.message.status === 'streaming' || snapshot.busy || messageActionPending || ['starting','synthesizing','playing'].includes(snapshot.speech?.status))) return;
   const isCopy = action === 'copy', control = isCopy ? node.copy : node.read;
   const target = { conversationId: node.conversationId, messageId: node.message.id };
   node.actionPending = true;
@@ -58,7 +58,7 @@ function controls() {
   find('#chat-stop').textContent = busy ? '停止回答' : '停止朗读';
   find('#chat-stop').title = busy ? '停止回答' : '停止朗读';
   find('#chat-new').disabled = !snapshot || busy || pending || !!snapshot.storageError;
-  find('#chat-status').textContent = busy ? '阮梅正在回答…' : speaking ? snapshot.speech.status === 'playing' ? '正在朗读…' : '正在准备朗读…' : '';
+  find('#chat-status').textContent = busy ? '阮·梅正在回答…' : speaking ? snapshot.speech.status === 'playing' ? '正在朗读…' : '正在准备朗读…' : '';
   find('#chat-status').hidden = !busy && !speaking;
 }
 function renderMessages() {
@@ -94,13 +94,13 @@ function renderMessages() {
     }
     node.message = message; node.conversationId = conversation.id; node.article.dataset.messageId = message.id;
     node.article.dataset.role = message.role;
-    setText(node.name, message.role === 'user' ? message.username || '你' : '阮梅');
+    setText(node.name, message.role === 'user' ? message.username || '你' : '阮·梅');
     node.stamp.dateTime = message.createdAt || ''; setText(node.stamp, time(message.createdAt));
     setText(node.body, message.content || (message.status === 'streaming' ? '正在想怎么回应你…' : '这次没有收到完整回答。'));
     const labels = { streaming: '正在回答', cancelled: '已停止', error: '回答未完成' };
     setText(node.note, labels[message.status] || ''); node.note.hidden = !labels[message.status];
     node.copy.button.disabled = !message.content?.trim() || node.actionPending;
-    if (node.read) node.read.button.disabled = !message.content?.trim() || message.status === 'streaming' || snapshot.busy || node.actionPending || messageActionPending;
+    if (node.read) node.read.button.disabled = !message.content?.trim() || message.status === 'streaming' || snapshot.busy || node.actionPending || messageActionPending || ['starting','synthesizing','playing'].includes(snapshot.speech?.status);
     // Never detach unchanged messages: doing so destroys a user's copy selection.
     if (messages.children[index] !== node.article) messages.insertBefore(node.article, messages.children[index] || null);
   }

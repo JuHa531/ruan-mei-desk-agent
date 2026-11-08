@@ -88,14 +88,21 @@ def clean_for_speech(text, skip_code="这一段是代码，我就不念了。"):
     t = _ARROWS.sub("，", t)
     t = _EMPHASIS.sub("", t)
     t = _EMOJI.sub("", t)
-    t = re.sub(r"[ \t]+", " ", t)
+    # Parenthetical prose is spoken as an aside with comma pauses, not as
+    # unpaired symbols (streaming used to split before a closing bracket).
+    t = re.sub(r'[（(【\[]', '，', t)
+    t = re.sub(r'[）)】\]]', '，', t)
+    t = re.sub(r'，\s*([。！？!?；;])', r'\1', t)
+    t = re.sub(r'([。！？!?；;])\s*，', r'\1', t)
+    t = re.sub(r'[ \t]+', ' ', t)
     t = re.sub(r"(?m)^[ \t]+", "", t)
     # 换行当断句，避免一口气连读
     t = re.sub(r"\n+", "。", t)
     t = re.sub(r"。{2,}", "。", t)
-    t = re.sub(r"[。、，]{2,}", "。", t)
+    t = re.sub(r"[。、，]{2,}", lambda m: '。' if '。' in m.group() else '，', t)
     t = re.sub(r"[：:、，]+(?=。)", "", t)
-    t = t.strip("。 \t")
+    t = t.strip(" \t").lstrip("。，")
+    t = re.sub(r"[，、：:；;]+$", "。", t)
     return t
 
 

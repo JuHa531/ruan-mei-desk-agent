@@ -3,7 +3,7 @@
   "productName": "梅梅桌宠",
   "version": "0.1.0",
   "private": true,
-  "description": "阮梅桌面伙伴 · 连接本机梅梅 AI",
+  "description": "阮·梅桌面伙伴 · 连接本机梅梅 AI",
   "author": "MeiMei; desktop host derived from ActorF",
   "license": "MIT",
   "main": "electron/main.cjs",

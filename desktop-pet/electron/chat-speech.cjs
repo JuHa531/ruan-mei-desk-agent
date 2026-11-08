@@ -218,7 +218,7 @@ function createChatSpeech({ root, projectRoot = 'D:\\MeiMei_AI', getProjectRoot 
   }
   function start(text, options = {}) {
     const manual = options.manual === true;
-    if (disposed) return false;
+    if (disposed || active) return false;
     const blocked = blockReason(manual);
     if (blocked) { if (manual) fail(blocked); return false; }
     if (typeof text !== 'string' || !text.trim()) {

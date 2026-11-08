@@ -114,8 +114,13 @@ test('stop terminates only its child, stops renderer audio, releases ownership, 
   f.controller.stop(); assert.equal(current.killCount, 1, 'Stopping twice is idempotent');
 });
 
-test('a replacement reply stops its predecessor before spawning and cannot overlap two audio segments', t => {
+test('another reply is refused until the current reply is explicitly stopped or finished', t => {
   const f = fixture(t); f.controller.start('第一条回答'); const first = f.children[0]; first.packet(audio());
+  assert.equal(f.controller.start('第二条回答'), false);
+  assert.equal(f.controller.speak('手动重播'), false);
+  assert.equal(first.killCount, 0); assert.equal(f.children.length, 1);
+  assert.deepEqual(f.claimed, [true]);
+  f.controller.stop();
   f.controller.start('第二条回答'); const second = f.children[1];
   assert.equal(first.killCount, 1); assert.deepEqual(f.claimed, [true, false, true]);
   second.packet(audio()); const sent = f.played.length;

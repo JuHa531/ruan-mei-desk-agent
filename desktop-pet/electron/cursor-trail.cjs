@@ -99,7 +99,7 @@ function createCursorTrail({ BrowserWindow, screen, root, isSmokeTest = false, i
     const window = new BrowserWindow({
       ...display.bounds, show: false, frame: false, thickFrame: false, transparent: true, backgroundColor: '#00000000',
       resizable: false, movable: false, minimizable: false, maximizable: false, fullscreenable: false,
-      focusable: false, skipTaskbar: true, hasShadow: false, alwaysOnTop: true, title: '阮梅 · 鼠标流光',
+      focusable: false, skipTaskbar: true, hasShadow: false, alwaysOnTop: true, title: '阮·梅 · 鼠标流光',
       webPreferences: { preload: path.join(root, 'electron', 'cursor-trail-preload.cjs'), contextIsolation: true,
         sandbox: true, nodeIntegration: false, webSecurity: true, webviewTag: false, backgroundThrottling: false, devTools: !isPackaged },
     });

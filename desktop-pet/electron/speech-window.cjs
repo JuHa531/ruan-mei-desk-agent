@@ -153,7 +153,7 @@ function createSpeechWindow({ BrowserWindow, screen, ipcMain, root, getCharacter
       const window = new BrowserWindow({
         ...bounds, show: false, frame: false, thickFrame: false, transparent: true, backgroundColor: '#00000000',
         resizable: false, maximizable: false, minimizable: false, fullscreenable: false, movable: false,
-        focusable: false, skipTaskbar: true, hasShadow: false, title: '阮梅 · 语音',
+        focusable: false, skipTaskbar: true, hasShadow: false, title: '阮·梅 · 语音',
         alwaysOnTop: getPreferences().alwaysOnTop !== false,
         webPreferences: { preload: path.join(root, 'electron', 'speech-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, webviewTag: false, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required', devTools: !isPackaged },
       });

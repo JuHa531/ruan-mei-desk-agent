@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>阮梅 · 本地 Agent</title>
+<title>阮·梅 · 本地 Agent</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#07100e">
 <meta name="mobile-web-app-capable" content="yes">
@@ -155,17 +155,19 @@
   .opts .sp{margin-left:auto}
 
   /* ---------- 外观抽屉 ---------- */
-  #drawer{position:fixed;top:0;right:-420px;width:400px;height:100vh;z-index:20;
+  #drawer{--drawer-pad-y:20px;--drawer-pad-x:22px;
+          position:fixed;top:40px;right:-420px;width:400px;height:calc(100vh - 40px);z-index:20;
           background:rgba(12,15,21,.94);backdrop-filter:blur(20px);
           border-left:1px solid var(--line);transition:right .22s ease;
-          padding:20px 22px;overflow-y:auto}
+          padding:var(--drawer-pad-y) var(--drawer-pad-x);overflow-y:auto}
   #drawer.open{right:0}
   #drawerBack{position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.45);
               opacity:0;pointer-events:none;transition:opacity .22s}
   #drawerBack.open{opacity:1;pointer-events:auto}
   .dhead{display:flex;align-items:center;justify-content:space-between;
-         position:sticky;top:-20px;background:rgba(12,15,21,.96);
-         margin:-20px -22px 6px;padding:16px 22px 10px;z-index:1}
+         position:sticky;top:calc(-1 * var(--drawer-pad-y));background:rgba(12,15,21,.96);
+         margin:calc(-1 * var(--drawer-pad-y)) calc(-1 * var(--drawer-pad-x)) 6px;
+         padding:16px var(--drawer-pad-x) 10px;z-index:1}
   .dhead h2{margin:0;font-size:15px}
   .dhead button{padding:4px 11px;font-size:13px;line-height:1.2}
   #drawer h2{margin:0 0 4px;font-size:15px}
@@ -231,7 +233,7 @@
     .mic{padding:0 12px}
     .opts{font-size:11.5px;flex-wrap:wrap;gap:6px}
     .opts>span:first-child{display:none}
-    #drawer{width:100%;right:-100%;padding:16px 18px;z-index:40}
+    #drawer{--drawer-pad-y:16px;--drawer-pad-x:18px;width:100%;right:-100%;z-index:40}
     #drawerBack{z-index:39}
     .toast{left:12px;right:12px;bottom:14px;transform:none;text-align:center}
     #log .empty{margin:28px auto}
@@ -239,7 +241,7 @@
   }
 </style>
 <style id="ruanmei-theme">
-  /* 阮梅主题：借用参考视频的三栏 Agent 骨架（会话/执行/角色侧栏），
+  /* 阮·梅主题：借用参考视频的三栏 Agent 骨架（会话/执行/角色侧栏），
      配色改成墨绿、青玉、淡梅与少量金色，保留原页面所有功能。 */
   body.ruanmei-theme{
     --bg:#07100e; --panel:rgba(7,20,17,.76); --panel2:rgba(12,31,26,.64);
@@ -877,10 +879,10 @@
   #railBack{display:none}
   body.ruanmei-theme.rail-collapsed #stickerPop{right:20px}
   @container (max-width:640px){
-    body.ruanmei-theme header{grid-template-columns:minmax(0,1fr);grid-template-areas:"heading" "actions" "status";gap:8px;padding:34px 16px 10px}
-    body.ruanmei-theme header .sp{justify-content:flex-start}
+    body.ruanmei-theme header{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"heading actions" "status status";gap:8px;padding:34px 16px 10px}
+    body.ruanmei-theme header .sp{justify-content:flex-end}
     body.ruanmei-theme header .ttl{flex-direction:row;align-items:baseline;gap:10px}
-    body.ruanmei-theme header .ttl .sub{flex-shrink:0}
+    body.ruanmei-theme header .ttl .sub{display:none}
     body.ruanmei-theme.narrow header{padding-right:16px}
   }
   @container (max-width:420px){
@@ -919,8 +921,8 @@
     <div class="side-region" id="sideRegion"></div>
     <div class="sideveil"></div>
     <div class="brand">
-      <img class="avatar" id="avatar" alt="阮梅">
-      <div><b>阮梅</b><small>天才俱乐部 · 第 81 号会员</small></div>
+      <img class="avatar" id="avatar" alt="阮·梅">
+      <div><b>阮·梅</b><small>天才俱乐部 · 第 81 号会员</small></div>
     </div>
     <div class="ssearch">
       <span class="ico">⌕</span>
@@ -956,21 +958,18 @@
       <button id="menu" class="menu" title="侧栏">☰</button>
       <div class="ttl">
         <h1 id="title">新的对话</h1>
-        <div class="sub"><span class="dot-live"></span>阮梅 · 本地 Agent
+        <div class="sub"><span class="dot-live"></span>阮·梅 · 本地 Agent
           <span class="wd" id="wd">—</span></div>
       </div>
       </div>
       <span class="sp">
-        <button id="voice" class="on" title="每条回复自动朗读；语气会根据内容自动选择。关掉就只在你点「重播」时出声">🔊 自动朗读</button>
-        <button id="skin">🎨 外观</button>
-        <button id="petMode" title="内置桌宠：开关、大小和动作设置">桌宠</button>
-        <button id="railToggle" aria-controls="rail" aria-expanded="true" title="收起右侧栏">侧栏 ›</button>
+        <button id="settingsOpen" aria-haspopup="dialog" aria-controls="settingsPanel">⚙ 设置</button>
       </span>
       <span id="sayState" class="saystate" role="status" aria-live="polite"></span>
     </header>
 
     <dialog id="petPanel" aria-labelledby="petPanelTitle">
-      <div class="pet-panel-heading"><h2 id="petPanelTitle">阮梅 · 桌宠模式</h2><button id="petPanelClose" aria-label="关闭桌宠面板">×</button></div>
+      <div class="pet-panel-heading"><h2 id="petPanelTitle">阮·梅 · 桌宠模式</h2><button id="petPanelClose" aria-label="关闭桌宠面板">×</button></div>
       <p id="petModeStatus" role="status">正在读取…</p>
       <p class="pet-panel-hint">桌宠由梅梅统一管理；对话、语音和记忆沿用当前梅梅。开启后可最小化主窗口。</p>
       <div class="pet-panel-row"><button id="petModeToggle">启用桌宠</button><button id="petModeSettings">动作与语音设置</button></div>
@@ -981,11 +980,12 @@
     <div id="log"></div>
 
     <footer>
+      <div style="display:flex;align-items:center;gap:8px;margin:0 0 8px;min-width:0"><button id="quickModelOpen" aria-haspopup="dialog" aria-controls="quickModelDialog" style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">模型 · 读取中… ▾</button></div>
       <div class="ctr">
         <button class="mic" id="mic" title="语音输入：点一下开始说，再点一下结束（离线识别）">🎙 说话</button>
         <button id="attachImage" title="选择图片，也可以粘贴或拖入图片">＋ 图片</button>
         <input id="imageFile" type="file" accept="image/*" multiple hidden>
-        <textarea id="inp" placeholder="和阮梅说点什么…"
+        <textarea id="inp" placeholder="和阮·梅说点什么…"
           title="可以直接让我读写文件、跑命令；Enter 发送，Shift+Enter 换行"></textarea>
         <button class="send" id="send">发送</button>
       </div>
@@ -1002,10 +1002,10 @@
     <div class="rail-toolbar"><span>角色与日常</span><button id="railClose" aria-label="收起右侧栏">收起 ›</button></div>
     <div class="rail-scroll">
       <div class="rail-card char-card">
-        <img class="char-img" src="/assets/bg.jpg" alt="阮梅">
+        <img class="char-img" src="/assets/bg.jpg" alt="阮·梅">
         <div class="char-info">
           <span class="char-eyebrow">GENIUS SOCIETY · NO.81</span>
-          <h2>阮梅</h2>
+          <h2>阮·梅</h2>
           <p>天才俱乐部 · 第 81 号会员</p>
           <div class="char-state" id="railState"><i></i>待命中</div>
         </div>
@@ -1048,6 +1048,68 @@
 
 <div id="sideBack"></div>
 <div id="railBack"></div>
+<dialog id="settingsPanel" aria-labelledby="settingsTitle">
+  <div class="settings-heading"><div><h2 id="settingsTitle">设置</h2><p>调整梅梅的对话、声音和桌面陪伴。</p></div><button id="settingsClose" aria-label="关闭设置">✕</button></div>
+  <section class="settings-group"><h3>执行权限</h3><select id="permissionMode" aria-label="执行权限" style="width:100%;padding:10px;background:#19363c;color:#eaf7f1"><option value="ask">请求批准 · 每项需求和操作先询问</option><option value="auto">帮我批准 · 敏感操作先询问</option><option value="full">完全批准 · 自动执行所有操作</option></select><p class="tip">完全批准使用当前 Windows 账号权限，仍可随时停止任务。</p></section>
+  <section class="settings-group"><h3>对话模型</h3><button id="modelSettingsOpen" class="settings-link"><span>模型与 API<small>本地 / GPT / DeepSeek / Claude · 密钥与连接测试</small></span><span aria-hidden="true">›</span></button></section>
+  <section class="settings-group"><h3>语音</h3><div class="settings-row"><span>回复朗读<small>使用当前阮·梅音色</small></span><button id="voice" class="on" title="控制每条回复是否自动朗读">🔊 自动朗读</button></div><button id="speechSettingsOpen" class="settings-link"><span>朗读方式<small>整段或分块朗读</small></span><span aria-hidden="true">›</span></button></section>
+  <section class="settings-group"><h3>桌面陪伴</h3><button id="petMode" class="settings-link"><span>桌宠<small>开关、大小、动作与语音设置</small></span><span aria-hidden="true">›</span></button></section>
+  <section class="settings-group"><h3>界面与外观</h3><button id="skin" class="settings-link"><span>外观与偏好<small>背景、透明度、素材和偏好管理</small></span><span aria-hidden="true">›</span></button><div class="settings-row"><span>右侧栏<small>角色与今日任务</small></span><button id="railToggle" aria-controls="rail" aria-expanded="true" title="收起右侧栏">侧栏 ›</button></div></section>
+</dialog>
+<style>
+#settingsPanel{box-sizing:border-box;width:min(460px,calc(100vw - 32px));max-height:85vh;overflow:auto;padding:22px;border:1px solid #438f91;border-radius:16px;background:#142c31;color:#eaf7f1}
+#settingsPanel::backdrop{background:rgba(0,0,0,.55)}
+.settings-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.settings-heading h2{font-size:18px;margin:0}.settings-heading p{font-size:12px;color:#a9c6c8;margin:8px 0 4px}
+.settings-group{margin-top:18px}.settings-group h3{font-size:11px;letter-spacing:.08em;color:#91b8bd;margin:0 0 8px}
+#settingsPanel .settings-link,.settings-row{box-sizing:border-box;width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;padding:12px;margin:5px 0;border:1px solid #2c5157;border-radius:10px;background:#19363c;color:#eaf7f1;font-size:13px}
+#settingsPanel .settings-link:hover{border-color:#7ac7c5;background:#21454b}
+#settingsPanel small{display:block;color:#a9c6c8;font-size:11px;margin-top:4px;font-weight:400;line-height:1.5}
+#settingsPanel .settings-row>button{flex-shrink:0}#settingsPanel button.on{background:#417c79;color:#effffd;border-color:#74b7ac}
+#settingsPanel button:focus-visible,#settingsOpen:focus-visible{outline:2px solid #7ee0c6;outline-offset:3px}
+</style>
+
+<dialog id="quickModelDialog" aria-labelledby="quickModelTitle" style="box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:80vh;overflow:auto;padding:22px;border:1px solid #438f91;border-radius:16px;background:#142c31;color:#eaf7f1">
+ <form id="quickModelForm">
+  <div style="display:flex;justify-content:space-between;align-items:center"><b id="quickModelTitle">切换对话模型</b><button type="button" id="quickModelClose">关闭</button></div>
+  <label for="quickProvider">供应商</label><select id="quickProvider"></select>
+  <label for="quickModelPreset">选择型号</label><select id="quickModelPreset"></select><label for="quickModelId">模型 ID（可手动填写）</label><input id="quickModelId" list="quickModelOptions" autocomplete="off" spellcheck="false"><datalist id="quickModelOptions"></datalist>
+  <p style="font-size:12px;color:#a9c6c8">可选择最近用过的型号，也可填写新型号。下一轮生效，当前对话记录保留。云端模型会接收本轮相关对话与工具结果。</p>
+  <div style="display:flex;gap:8px"><button type="submit" id="quickModelApply">使用此模型</button><button type="button" id="quickModelManage">配置服务与密钥</button></div>
+  <p id="quickModelStatus" role="status" style="font-size:12px;overflow-wrap:anywhere"></p>
+ </form>
+</dialog>
+<style>
+#quickModelDialog::backdrop{background:#0008}#quickModelDialog label{display:block;margin-top:16px;font-size:13px}
+#quickModelDialog input,#quickModelDialog select{box-sizing:border-box;width:100%;padding:10px;margin:6px 0;border-radius:8px;border:1px solid #438f91;background:#0e2227;color:#eaf7f1;min-width:0}
+</style>
+<dialog id="modelSettingsDialog" style="width:min(460px,calc(100vw - 40px));max-height:85vh;overflow:auto;border:1px solid #438f91;border-radius:16px;background:#142c31;color:#eaf7f1;padding:22px">
+  <form id="modelSettingsForm" autocomplete="off">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="font-size:18px;margin:0">对话模型</h2><button type="button" id="modelSettingsClose">关闭</button></div>
+    <p style="font-size:12px;color:#a9c6c8">各服务分别保存配置。保存后下一轮对话生效；阮·梅人设、记忆与本地语音继续使用。</p>
+    <label for="modelProvider">模型服务</label>
+    <select id="modelProvider"><option value="local">本地 Ollama</option><option value="openai">GPT / OpenAI</option><option value="deepseek">DeepSeek</option><option value="claude">Claude / Anthropic</option><option value="compatible">自定义 OpenAI 兼容服务</option></select>
+    <div id="cloudModelFields">
+      <label for="modelBase">API 基础地址</label><input id="modelBase" type="url" spellcheck="false" placeholder="https://api.example.com/v1">
+      <label for="modelKey">API 密钥</label><input id="modelKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="填写 API 密钥">
+      <label style="display:flex;gap:8px;align-items:center"><input id="modelClearKey" type="checkbox" style="width:auto;margin:0">清除已保存密钥并切回本地</label>
+    </div>
+    <label for="modelPreset">选择型号</label><select id="modelPreset"></select><label for="modelName">模型 ID（可手动填写）</label><input id="modelName" spellcheck="false" placeholder="填写平台控制台提供的准确模型 ID">
+    <p id="modelPrivacy" style="font-size:12px;color:#b4d5d6"></p>
+    <p style="font-size:12px;color:#a9c6c8">密钥由当前 Windows 账户加密保存，不回显。测试只发送一条简短测试文本，可能产生少量 API 费用。</p>
+    <div style="display:flex;gap:10px"><button type="button" id="modelTest">测试连接</button><button type="submit" id="modelSave">保存并启用</button></div>
+    <p id="modelFeedback" role="status" aria-live="polite" style="font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere"></p>
+  </form>
+</dialog>
+<style>
+#modelSettingsDialog::backdrop{background:rgba(0,0,0,.55)}
+#modelSettingsDialog label{display:block;font-size:13px;margin-top:14px}
+#modelSettingsDialog input,#modelSettingsDialog select{box-sizing:border-box;width:100%;margin:6px 0;padding:10px;border-radius:8px;border:1px solid #438f91;background:#0e2227;color:#eaf7f1;min-width:0}
+#modelSettingsDialog button{padding:8px 12px;border:1px solid #438f91;border-radius:8px;background:#23474c;color:#eaf7f1;cursor:pointer}
+#modelSettingsDialog button:disabled{opacity:.5;cursor:wait}
+</style>
+
+<button id="agentStop" hidden style="position:fixed;bottom:108px;right:24px;z-index:50">停止任务</button>
 <div id="drawerBack"></div>
 <div id="stickerPop">
   <div class="sp-head"><b>表情包</b><button class="mini wide" id="autoStickerBtn2">自动·开</button><button id="stickerPopClose" title="关闭">✕</button></div>
@@ -1215,7 +1277,7 @@ const BLOSSOM_SVG = [
 ].join('');
 const DEFAULT_FAVICON = $('favicon').href;   // 页面里写的那朵青蓝梅花
 
-/* 空状态的开场白：按阮梅的语气写（平静、用完整句子、不用感叹号、称对方「亲爱的」），
+/* 空状态的开场白：按阮·梅的语气写（平静、用完整句子、不用感叹号、称对方「亲爱的」），
    每次打开应用或新建对话随机选一句。想加句子直接往数组里加。 */
 const OPENERS = [
   '亲爱的，坐吧。要整理文件、读代码，还是跑命令？',
@@ -1239,21 +1301,32 @@ function pickOpener(){
 let bootOpener = pickOpener();   // 打开应用时先定一句，别每次重绘都换
 
 /* ---------------- 会话存储 ---------------- */
+function hasSessionContent(session){
+  return Array.isArray(session.items) && session.items.some(item => !item.ephemeral && (
+    String(item.text || '').trim() || item.images?.length || item.sticker || item.tools?.length));
+}
 function loadSessions(){
-  try { return JSON.parse(localStorage.getItem('rm_sessions') || '[]'); }
+  try {
+    const saved=JSON.parse(localStorage.getItem('rm_sessions') || '[]');
+    return Array.isArray(saved) ? saved.filter(s=>s && s.id && hasSessionContent(s)) : [];
+  }
   catch(e){ return []; }
 }
 function saveSessions(){
   // shown 只是"当前显示到哪"的临时状态，不落盘（否则中途刷新会看到半截消息）
-  const clean = sessions.map(s => ({...s, items: s.items.map(({shown, ...rest}) => rest)}));
+  const clean = sessions.filter(hasSessionContent).map(s => ({...s, items: s.items.map(({shown, ...rest}) => rest)}));
   localStorage.setItem('rm_sessions', JSON.stringify(clean));
 }
 let sessions = loadSessions();
-let curId = sessions[0] ? sessions[0].id : null;
+// Each page/app launch starts at the blank composer; history is opt-in.
+let curId = null;
+// Remove old empty placeholders without changing any substantive history.
+saveSessions();
 function cur(){ return sessions.find(s => s.id === curId) || null; }
 function newSession(){
   bootOpener = pickOpener();   // 每开一个新对话，换一句
-  const s = {id: Date.now().toString(36), title: '新的对话', items: [],
+  sessions = sessions.filter(hasSessionContent);
+  const s = {id: crypto.randomUUID(), title: '新的对话', items: [],
              opener: bootOpener};
   sessions.unshift(s); curId = s.id; saveSessions(); render(); inp.focus();
 }
@@ -1284,16 +1357,17 @@ function fmt(text){
 
 function toolCard(t){
   const box = el('div', 'tool');
-  box.classList.add('open');   // 默认展开：让"它真的动手了"一眼可见（点标题可折叠）
+  // Execution details are available on demand.
   const head = el('div', 'th');
   head.appendChild(el('span', null, '🔧'));
   head.appendChild(el('b', null, t.name));
-  head.appendChild(el('code', null, JSON.stringify(t.args || {})));
+
   head.appendChild(el('span', 'tag',
     t.result == null ? '运行中…' : (t.result.length + ' 字')));
   box.appendChild(head);
   const body = el('div', 'body');
   const pre = el('pre', null, t.result == null ? '（等待返回）' : t.result);
+  body.appendChild(el('pre', null, JSON.stringify(t.args || {}, null, 2)));
   body.appendChild(pre); box.appendChild(body);
   head.onclick = () => box.classList.toggle('open');
   if (t.result && /工具出错|Error|error|拒绝/.test(t.result.slice(0, 80)))
@@ -1304,7 +1378,7 @@ function toolCard(t){
 function renderItem(it, live){
   const row = el('div', 'row ' + (it.role === 'user' ? 'right' : 'left'));
   const col = el('div', 'col');
-  col.appendChild(el('div', 'who', it.role === 'user' ? '你' : '阮梅'));
+  col.appendChild(el('div', 'who', it.role === 'user' ? '你' : '阮·梅'));
 
   if (it.tools && it.tools.length) it.tools.forEach(t => col.appendChild(toolCard(t)));
 
@@ -1336,7 +1410,9 @@ function renderItem(it, live){
   if (it.role === 'assistant' && it.text && it.done) {
     const row2 = el('div', 'opts'); row2.style.marginTop = '7px';
     const b = el('button', null, '🔊 重播');
-    b.onclick = () => { speechAbort(); speak(it.text, b, '', it.voiceTone || ''); };
+    b.classList.add('speech-play');
+    b.disabled = speechOccupied();
+    b.onclick = () => speak(it.text, b, '', it.voiceTone || '');
     row2.appendChild(b); col.appendChild(row2);
   }
   row.appendChild(col);
@@ -1377,9 +1453,10 @@ function render(){
 
 function renderSessions(){
   const box = $('sessions'); box.innerHTML = '';
-  if (!sessions.length) { box.appendChild(el('div', 'sect', '（还没有会话）')); return; }
+  const history=sessions.filter(hasSessionContent);
+  if (!history.length) { box.appendChild(el('div', 'sect', '（还没有会话）')); return; }
   const q = ($('sessSearch') && $('sessSearch').value || '').trim().toLowerCase();
-  const list = sessions.filter(s => !q || String(s.title || '').toLowerCase().includes(q));
+  const list = history.filter(s => !q || String(s.title || '').toLowerCase().includes(q));
   if (!list.length) { box.appendChild(el('div', 'sect', '没有匹配的会话')); return; }
   list.forEach(s => {
     const d = el('div', 'sess' + (s.id === curId ? ' on' : ''));
@@ -1662,13 +1739,16 @@ let backendDown = false;      // 上一次探测时后端是不是不在
 async function check(){
   try {
     const j = await (await fetch('/api/status')).json();
-    $('dotModel').className = 'dot ' + (j.ollama ? 'on' : 'off');
-    $('sModel').textContent = j.ollama ? '模型 就绪' : '模型 未响应';
+    if(j.model_api)renderQuickModel(j.model_api);
+    const cloud=j.model_api&&j.model_api.active!=='local';
+    const ready=cloud||j.ollama;
+    $('dotModel').className = 'dot ' + (ready ? 'on' : 'off');
+    $('sModel').textContent = cloud ? j.model_api.active+' · 已配置' : (j.ollama ? '模型 就绪' : '模型 未响应');
     $('dotTts').className = 'dot ' + (j.tts ? 'on' : 'off');
     $('sTts').textContent = j.tts ? '语音 就绪' : '语音 未启动';
     if ($('railState')) $('railState').innerHTML =
-      '<i></i>' + (j.ollama && j.tts ? '待命中' : '部分离线');
-    $('hint').textContent = j.ollama ? '就绪' : 'Ollama 未响应（检查 ollama 是否在跑）';
+      '<i></i>' + (ready && j.tts ? '待命中' : '部分离线');
+    $('hint').textContent = cloud ? '云端模型 · 本地语音' : (j.ollama ? '就绪' : 'Ollama 未响应（检查 ollama 是否在跑）');
     /* 后端刚恢复：把背景重建一遍。
        后端一没，播放器要不到下一段数据就停在最后一帧；等后端回来，
        光靠它自己不会重新请求 —— 看起来就是"背景永远卡住了"。
@@ -1699,77 +1779,78 @@ function sayState(s, level){
 }
 
 /* 播放一段已经准备好的音频；被浏览器拦下就记下来，等下一次点击补播 */
+let manualSpeech = null;
+function speechOccupied(){ return !!manualSpeech || sp.on; }
+function refreshSpeechButtons(){
+  document.querySelectorAll('.speech-play').forEach(b => b.disabled = speechOccupied());
+}
 async function playUrl(url){
-  player.pause();
-  player.src = url;
-  player.onended = () => { sayState(''); };
-  try {
-    await player.play();
-    blockedAudio = null;
-    sayState('朗读中…', 'live');
-  } catch (e) {
-    blockedAudio = url;
-    sayState('点一下窗口就开始读', 'warn');
-    toast('浏览器拦住了自动播放：在窗口里点一下任意位置就会接着读');
-  }
+  return new Promise((resolve, reject) => {
+    const finish = error => { player.onended = player.onerror = null; if (manualSpeech) manualSpeech.finish = null; error ? reject(error) : resolve(); };
+    if (manualSpeech) manualSpeech.finish = () => finish();
+    player.src = url;
+    player.onended = () => finish();
+    player.onerror = () => finish(new Error('音频播放失败'));
+    player.play().then(() => sayState('朗读中…', 'live')).catch(error => {
+      if (error.name === 'NotAllowedError') {
+        blockedAudio = url;
+        sayState('点一下窗口开始朗读', 'warn');
+      } else { finish(error); }
+    });
+  });
 }
 
-/* 合成一段文字并朗读。注意：这个函数只管“读”，开关的判断放在调用处，
-   这样手动点「重播」永远有效，不受自动朗读开关影响。 */
 async function speak(text, btn, userText='', toneOverride=''){
   if (!text.trim()) return;
+  if (speechOccupied()) { toast('当前语音结束后才能播放其他语音'); return; }
+  const lease = {controller:new AbortController(), finish:null};
+  manualSpeech = lease;
+  refreshSpeechButtons();
   const tone = toneOverride || pickTone(userText, text);
   const key = ttsKey(text, tone);
-  if (btn) { btn.textContent = '合成中…'; btn.disabled = true; }
+  if (btn) btn.textContent = '合成中…';
   const bgTok = bgHoldStart();
   try {
     const hit = cacheGet(key);
     if (hit) {
-      // 同一句话 + 同一个语气：直接用上次的结果，不再合成一遍
-      if (btn) btn.textContent = '朗读中…';
       if (hit.kind === 'url') await playUrl(hit.url);
       else await playBufferOnce(hit.buffer);
     } else {
-      // 同流式那边一样加硬超时：后端预热时不能让重播一直吊着
-      const ac = new AbortController();
-      const tid = setTimeout(() => { try { ac.abort(); } catch (e) {} }, 120000);
-      const r = await fetch('/api/tts', {method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text, voice: 'ruanmei:' + tone}),
-        signal: ac.signal}).finally(() => clearTimeout(tid));
-      if (!r.ok) {
-        let msg = 'HTTP ' + r.status;
-        try { msg = (await r.json()).error || msg; } catch (e) {}
-        throw new Error(msg);
-      }
-      const url = URL.createObjectURL(await r.blob());
-      cachePut(key, {kind: 'url', url});
+      const tid = setTimeout(() => lease.controller.abort(), 900000);
+      const r = await fetch('/api/tts', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({text, voice:'ruanmei:' + tone}), signal:lease.controller.signal})
+        .finally(() => clearTimeout(tid));
+      if (!r.ok) { let msg='HTTP '+r.status; try {msg=(await r.json()).error || msg;}catch(_){} throw new Error(msg); }
+      const blob = await r.blob();
+      if (manualSpeech !== lease) return;
+      const url = URL.createObjectURL(blob);
+      cachePut(key, {kind:'url', url});
       await playUrl(url);
     }
   } catch(e) {
-    sayState('语音失败：' + String(e.message).slice(0, 30), 'warn');
-    toast('语音合成失败：' + String(e.message).slice(0, 80));
+    if (manualSpeech === lease && e.name !== 'AbortError') {
+      sayState('语音失败：'+e.message, 'warn'); toast('语音失败：'+e.message);
+    }
+  } finally {
+    bgHoldEndNow(bgTok);
+    if (manualSpeech === lease) { manualSpeech = null; sayState(''); }
+    if (btn) btn.textContent = '🔊 重播';
+    refreshSpeechButtons();
   }
-  bgHoldEndNow(bgTok);
-  if (btn) { btn.textContent = '🔊 重播'; btn.disabled = false; }
 }
 
-/* 用 Web Audio 把一条已经解码好的音频放完（缓存命中时走这里，不用等合成） */
 function playBufferOnce(buffer){
   return new Promise(resolve => {
     const ctx = speechCtx();
     if (!ctx) { resolve(); return; }
-    const t = trimSilence(buffer);
-    const startSec = t.start / buffer.sampleRate;
-    const dur = Math.max(0.05, (t.end - t.start) / buffer.sampleRate);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.connect(ctx.destination);
-    src.onended = () => resolve();
+    // A complete cached reply already contains its pauses: do not trim it again.
+    src.onended = () => { src.disconnect(); resolve(); };
+    if (manualSpeech) manualSpeech.finish = () => { try {src.stop();}catch(_){} resolve(); };
     sayState('朗读中…', 'live');
-    try { src.start(ctx.currentTime + 0.03, startSec, dur); }
-    catch (e) { resolve(); return; }
-    setTimeout(resolve, (dur + 1.5) * 1000);      // 兜底：万一 onended 没来
+    try { src.start(); } catch (_) { resolve(); }
   });
 }
 
@@ -1875,6 +1956,8 @@ function fenceOdd(s){
 }
 
 function speechAbort(){
+  if (manualSpeech) { const old=manualSpeech; manualSpeech=null; old.controller.abort(); if(old.finish) old.finish(); }
+  blockedAudio=null;
   sp.on = false;
   sp.generation++;
   sp.controllers.forEach(ac => ac.abort());
@@ -1892,11 +1975,13 @@ function speechAbort(){
   if (sp.watch) { clearInterval(sp.watch); sp.watch = 0; }
   bgHoldEndNow(sp.bgTok);
   player.pause();
+  refreshSpeechButtons();
 }
 
 function speechBegin(userText=''){
+  if (speechOccupied()) return false;
   speechAbort();
-  sp.on = true; sp.seq = 0; sp.next = 0; sp.active = 0;
+  sp.on = true; refreshSpeechButtons(); sp.seq = 0; sp.next = 0; sp.active = 0;
   sp.failed = 0; sp.firstAt = 0; sp.chunks = 0; sp.t0 = performance.now();
   sp.nextAt = 0;
   sp.parts = []; sp.revealed = 0;
@@ -1931,14 +2016,11 @@ function speechCtx(){
 
 /* 保留头尾 80ms，避免把轻声起音和尾音切掉。 */
 function trimSilence(buffer){
+  // Only trim digital silence at the start; retain the complete quiet ending.
   const d = buffer.getChannelData(0);
-  const thr = 0.006;
-  let s = 0, e = d.length - 1;
-  while (s < d.length && Math.abs(d[s]) < thr) s++;
-  while (e > s && Math.abs(d[e]) < thr) e--;
-  if (e <= s) return {start: 0, end: d.length};
-  const pad = Math.round(buffer.sampleRate * 0.08);
-  return {start: Math.max(0, s - pad), end: Math.min(d.length, e + pad + 1)};
+  let start=0;
+  while(start<d.length && d[start]===0) start++;
+  return {start:Math.max(0,start-Math.round(buffer.sampleRate*.08)), end:d.length};
 }
 
 /* 从缓冲区里切一块出来；force=true 表示收尾，剩余的全给它 */
@@ -1998,6 +2080,20 @@ function takeChunk(force){
       cut = end;
     }
   }
+  // Keep parenthetical/quoted spans together, including their closing marks.
+  const pairs={'（':'）','(':')','【':'】','[':']','“':'”','「':'」','《':'》'};
+  const stack=[];
+  for(let i=0;i<cut;i++){
+    if(pairs[s[i]]) stack.push({end:pairs[s[i]],start:i});
+    else if(stack.length && s[i]===stack[stack.length-1].end) stack.pop();
+  }
+  if(stack.length){
+    const end=s.indexOf(stack[stack.length-1].end,cut);
+    if(end>=0) cut=end+1;
+    else if(s.length<SP_HARD) return null;
+    else if(stack[0].start>0) cut=stack[0].start;
+  }
+  while(/[）)】\]”」》]/.test(s[cut] || '\0')) cut++;
   const chunk = s.slice(0, cut);
   sp.buf = s.slice(cut);
   sp.lastLen = chunk.trim().length;
@@ -2062,7 +2158,10 @@ function speechMaybeDone(){
        否则会在语音还在播的时候提前把全文露出来，同步就白做了。 */
     const ctx = sp.ctx;
     const pending = ctx && sp.nextAt > ctx.currentTime + 0.05;
-    if (!pending) revealUpTo(sp.parts.length);
+    if (!pending) {
+      revealUpTo(sp.parts.length);
+      if (!busy) { sp.on=false; refreshSpeechButtons(); }
+    }
     cacheStreamedSpeech();        // 这一条读完就拼一份缓存，下次「重播」不用再合成
     // 整条放完再把背景视频放开（不是合成完就放，否则后半句还会跟视频抢资源）
     if (!sp.released) {
@@ -2082,7 +2181,9 @@ function speechPause(text){
        : /[！？!?]$/.test(ending) ? 0.68 : SP_SEAM;
 }
 function cacheStreamedSpeech(){
-  if (sp.cached || !sp.fullText || !sp.ctx) return;
+  if (sp.cached || !sp.fullText || !sp.ctx || sp.failed || sp.active || sp.buf.trim()
+      || sp.decoded.size !== sp.seq || sp.parts.length !== sp.seq
+      || sp.parts.join('').replace(/\s/g,'') !== sp.fullText.replace(/\s/g,'')) return;
   const bufs = [];
   // 按序号取已经解码好的块，而不是按 sp.seq 数数 —— 序号才是真实存在的那些，
   // 中间有块合成失败也照样能拼（缺的那块跳过）。
@@ -2211,11 +2312,12 @@ function speechFinish(){
 function unlockAudio(){
   if (sp.ctx && sp.ctx.state === 'suspended') sp.ctx.resume().catch(() => {});
   if (blockedAudio) {
-    blockedAudio = null;
-    pumpSpeech();                  // 流式的队列接着往下排
+    const pending = blockedAudio; blockedAudio = null;
+    if (typeof pending === 'string' && manualSpeech) player.play().catch(()=>{blockedAudio=pending;});
+    else pumpSpeech();                  // 流式的队列接着往下排
   }
-  document.removeEventListener('pointerdown', unlockAudio, true);
-  document.removeEventListener('keydown', unlockAudio, true);
+
+
 }
 document.addEventListener('pointerdown', unlockAudio, true);
 document.addEventListener('keydown', unlockAudio, true);
@@ -2239,9 +2341,9 @@ function wakeCheck(text){
 function wakeAnswer(){
   if (!cur()) newSession();
   const s = cur();
-  s.items.push({role: 'user', text: WAKE});
+  s.items.push({role: 'user', text: WAKE, ephemeral: true});
   const line = WAKE_LINES[Math.floor(Math.random() * WAKE_LINES.length)];
-  s.items.push({role: 'assistant', text: line, tools: [], done: true});
+  s.items.push({role: 'assistant', text: line, tools: [], done: true, ephemeral: true});
   if (s.title === '新的对话') s.title = '（唤醒）' + WAKE;
   saveSessions(); render();
   sayState('');
@@ -2293,24 +2395,53 @@ inp.addEventListener('paste', e => {
 $('log').addEventListener('dragover', e => e.preventDefault());
 $('log').addEventListener('drop', e => { e.preventDefault(); uploadImages(e.dataTransfer.files); });
 
+let currentAgentRequest = null;
+$('agentStop').onclick = async () => {
+  speechAbort();
+  if(currentAgentRequest) await api('/api/agent-cancel',{request_id:currentAgentRequest});
+};
+fetch('/api/permissions').then(r=>r.json()).then(s=>$('permissionMode').value=s.mode).catch(()=>{});
+$('permissionMode').onchange = async () => {
+  try { await api('/api/permissions',{mode:$('permissionMode').value}); toast('权限已保存，下一条需求生效'); }
+  catch(e){toast(e.message);}
+};
+function showApproval(item, col){
+  const box=el('div','tool');
+  box.appendChild(el('p',null,'需要你批准：'+item.name));
+  // Approval must show the exact action even when routine execution details are collapsed.
+  const detail=el('pre',null,JSON.stringify(item.args,null,2));
+  detail.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;padding:10px';
+  box.appendChild(detail);
+  for(const [label,allow] of [['批准这一次',true],['拒绝',false]]){
+    const button=el('button',null,label);
+    button.onclick=async()=>{
+      box.querySelectorAll('button').forEach(b=>b.disabled=true);
+      try {await api('/api/approve',{token:item.token,allow});box.remove();}
+      catch(e){toast(e.message);box.querySelectorAll('button').forEach(b=>b.disabled=false);}
+    };
+    box.appendChild(button);
+  }
+  col.appendChild(box);log.scrollTop=log.scrollHeight;
+}
+
 async function send(){
   const text = inp.value.trim() || (pendingImages.length ? '请描述这张图片，并读出图中的文字。' : '');
-  if (!text || busy || imageUploading) return;
+  if (!text || busy || imageUploading || modelSwitchPending) return;
   /* 唤醒词：说到「亲爱的」就是在叫梅梅。
      只叫一声（后面没别的内容）时不该去打扰模型 —— 直接答应，快而且不会答偏；
      后面带了要求就照常走完整流程，另外在服务端加一句提示，免得它把这个称呼理解成
      "用户在自称亲爱的"（她在人设里本来就管主人叫亲爱的）。 */
   const wk = wakeCheck(text);
-  if (wk.wake && !wk.rest) { inp.value = ''; inp.style.height = '56px'; wakeAnswer(); return; }
+  if (wk.wake && !wk.rest && $('permissionMode').value !== 'ask') { inp.value = ''; inp.style.height = '56px'; wakeAnswer(); return; }
   if (!cur()) { newSession(); }
-  speechAbort(); sayState('');         // 新消息进来时先停下上一条的朗读
+  const requestSpeak = autoSpeak && !speechOccupied();
   busy = true; inp.value = ''; inp.style.height = '56px'; $('send').disabled = true;
-  if (autoSpeak && streamSpeak) speechBegin(text);   // 边生成边读
+  if (requestSpeak && streamSpeak) speechBegin(text);   // 边生成边读
 
   const s = cur();
   s.items.push({role: 'user', text, images: pendingImages.slice()});
   pendingImages = []; drawPendingImages();
-  if (s.title === '新的对话') s.title = text.slice(0, 18);
+  if (s.title === '新的对话' || s.title.startsWith('（唤醒）')) s.title = text.slice(0, 18);
   const asst = {role: 'assistant', text: '', tools: [], done: false};
   asst.shown = '';                       // 已经显示出来的部分（跟随语音）
   s.items.push(asst);
@@ -2330,10 +2461,12 @@ async function send(){
   const history = s.items.filter(i => i.role === 'user' || (i.role === 'assistant' && i.done))
                           .map(i => ({role: i.role, content: i.text, ...(i.images?.length ? {images:i.images} : {})}));
 
+  currentAgentRequest = crypto.randomUUID();
+  $('agentStop').hidden = false;
   try {
     const r = await fetch('/api/agent', {method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages: history, think: false})});
+      body: JSON.stringify({messages: history, think: false, request_id:currentAgentRequest})});
     if (!r.ok) {
       let detail='';
       if ((r.headers.get('Content-Type') || '').includes('application/json')) {
@@ -2355,9 +2488,11 @@ async function send(){
           asst.text += j.content;
           asst.shown = asst.text;
           drawBubble();
-          if (autoSpeak && streamSpeak) {
+          if (requestSpeak && streamSpeak) {
             speechFeed(j.content);          // 边收边送合成，不阻塞正文显示
           }
+        } else if (j.type === 'approval') {
+          showApproval(j, col);
         } else if (j.type === 'tool') {
           asst.tools.push({name: j.name, args: j.args, result: null});
           row.remove();
@@ -2365,7 +2500,7 @@ async function send(){
           log.appendChild(fresh);
           row = fresh; col = fresh.firstElementChild;
           const cards = row.querySelectorAll('.tool');
-          if (cards.length) cards[cards.length - 1].classList.add('open');
+
         } else if (j.type === 'tool_result') {
           for (let i = asst.tools.length - 1; i >= 0; i--) {
             if (asst.tools[i].name === j.name && asst.tools[i].result == null) {
@@ -2376,7 +2511,7 @@ async function send(){
           const last = asst.tools[asst.tools.length - 1];
           if (cards.length && last) {
             const c = cards[cards.length - 1];
-            c.querySelector('pre').textContent = last.result;
+            c.querySelector('pre:last-child').textContent = last.result;
             c.querySelector('.tag').textContent = last.result.length + ' 字';
           }
         } else if (j.type === 'error') {
@@ -2402,8 +2537,8 @@ async function send(){
       asst.mood = pick.mood || pick.label;
     }
   }
-  asst.voiceTone = (autoSpeak && streamSpeak && sp.tone) || pickTone(text, asst.text);
-  if (autoSpeak && streamSpeak && !sp.tone) sp.tone = asst.voiceTone;
+  asst.voiceTone = (requestSpeak && streamSpeak && sp.tone) || pickTone(text, asst.text);
+  if (requestSpeak && streamSpeak && !sp.tone) sp.tone = asst.voiceTone;
   asst.done = true;
   saveSessions(); render();
   row = log.lastElementChild;     // render() 重建了 DOM，把引用接回来，后面 reveal 才画得上去
@@ -2411,9 +2546,10 @@ async function send(){
   // 把最后没送出去的那点尾巴读完（开关关掉时不读，手动「重播」仍然可用）
   // sp.fullText 是给「重播」缓存用的：流式朗读是分块合成的，读完要把它们
   // 拼成一条存起来，否则再点重播还得整段重新合成一遍。
-  if (autoSpeak && streamSpeak) { sp.fullText = asst.text; speechFinish(); }
-  else if (autoSpeak && asst.text) speak(asst.text, null, text);   // 整段模式：写完再合成
-  busy = false; $('send').disabled = false; inp.focus();
+  if (requestSpeak && streamSpeak) { sp.fullText = asst.text; speechFinish(); }
+  else if (requestSpeak && asst.text) speak(asst.text, null, text);   // 整段模式：写完再合成
+  busy = false; $('agentStop').hidden=true; currentAgentRequest=null; $('send').disabled = false; inp.focus();
+  speechMaybeDone();
 }
 
 /* ---------------- 事件绑定 ---------------- */
@@ -2988,6 +3124,113 @@ if ($('bgClear')) $('bgClear').onclick = () => {
   }
 };
 applyRegionBackgrounds();
+
+$('settingsOpen').onclick=()=>{$('settingsPanel').showModal();};
+$('settingsClose').onclick=()=>{$('settingsPanel').close();};
+$('settingsPanel').addEventListener('click',e=>{
+  if(e.target===$('settingsPanel')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close();}
+});
+for(const id of ['skin','petMode','modelSettingsOpen']){
+  $(id).addEventListener('click',()=>{$('settingsPanel').close();},true);
+}
+$('speechSettingsOpen').onclick=()=>{$('settingsPanel').close();setDrawer(true);$('streamChk').focus();};
+for(const id of ['petPanel','modelSettingsDialog']){
+  $(id).addEventListener('close',()=>{$('settingsOpen').focus();});
+}
+
+// Official model identifiers checked 2026-11-05; access depends on the API account.
+const modelPresets={
+ openai:[['gpt-6.1-sol','GPT-6.1 Sol'],['gpt-6.1-terra','GPT-6.1 Terra'],['gpt-6-astra','GPT-6 Astra']],
+ claude:[['claude-opus-5-5','Claude Opus 5.5'],['claude-sonnet-5-5','Claude Sonnet 5.5'],['claude-haiku-5-5','Claude Haiku 5.5'],['claude-fable-5-1','Claude Fable 5.1']],
+ deepseek:[['deepseek-flash','DeepSeek Flash'],['deepseek-v4-pro','DeepSeek V4 Pro']]
+};
+function fillModelPreset(selectId,inputId,provider,profile){
+ const select=$(selectId),input=$(inputId);select.replaceChildren();
+ const manual=document.createElement('option');manual.value='';manual.textContent='自定义 / 手动填写';select.append(manual);
+ const entries=new Map(modelPresets[provider]||[]);
+ for(const id of [profile.model,...(profile.models||[])])if(id&&!entries.has(id))entries.set(id,id+'（已保存）');
+ for(const[id,label]of entries){const option=document.createElement('option');option.value=id;option.textContent=label;select.append(option);}
+ select.value=entries.has(input.value)?input.value:'';
+ select.onchange=()=>{if(select.value)input.value=select.value;else input.focus();};
+ input.oninput=()=>{select.value=entries.has(input.value)?input.value:'';};
+}
+
+let modelSwitchPending=false,quickModelConfig=null;
+const modelProviderNames={local:'本地',openai:'OpenAI',deepseek:'DeepSeek',claude:'Claude',compatible:'兼容服务'};
+function renderQuickModel(data){
+ const p=data.profiles[data.active];
+ $('quickModelOpen').textContent=(modelProviderNames[data.active]||data.active)+' · '+(p.model||'默认角色模型')+' ▾';
+ $('quickModelOpen').title='当前模型：'+(p.model||'默认角色模型')+'；点击切换';
+}
+function quickProviderChanged(){
+ const name=$('quickProvider').value,p=quickModelConfig.profiles[name];
+ $('quickModelId').value=p.model||'';
+ fillModelPreset('quickModelPreset','quickModelId',name,p);
+ $('quickModelId').placeholder=name==='local'?'留空使用默认角色模型':'填写平台的模型 ID';
+ $('quickModelOptions').replaceChildren();
+ for(const model of new Set([p.model,...(p.models||[])])){if(!model)continue;const opt=document.createElement('option');opt.value=model;$('quickModelOptions').append(opt);}
+ const ready=name==='local'||p.has_key;
+ $('quickModelApply').disabled=!ready;
+ $('quickModelStatus').textContent=ready?'':'此服务尚未配置密钥，请先点击“配置服务与密钥”。';
+}
+$('quickModelOpen').onclick=async()=>{
+ try{const r=await fetch('/api/model-settings');const j=await r.json();if(!r.ok)throw new Error(j.error||'读取失败');
+ quickModelConfig=j;$('quickProvider').replaceChildren();
+ for(const [id,name]of Object.entries(modelProviderNames)){const opt=document.createElement('option');opt.value=id;opt.textContent=name+(id!=='local'&&!j.profiles[id].has_key?'（未配置）':'');$('quickProvider').append(opt);}
+ $('quickProvider').value=j.active;quickProviderChanged();$('quickModelDialog').showModal();
+ }catch(e){toast(e.message);}
+};
+$('quickProvider').onchange=quickProviderChanged;
+$('quickModelClose').onclick=()=>{$('quickModelDialog').close();};
+$('quickModelDialog').addEventListener('close',()=>{$('quickModelOpen').focus();});
+$('quickModelManage').onclick=()=>{const provider=$('quickProvider').value;$('quickModelDialog').close();Promise.resolve($('modelSettingsOpen').onclick()).then(()=>{if($('modelSettingsDialog').open){$('modelProvider').value=provider;showModelProfile();}});};
+$('quickModelForm').onsubmit=async e=>{
+ e.preventDefault();if(modelSwitchPending)return;
+ modelSwitchPending=true;$('quickModelApply').disabled=true;$('quickProvider').disabled=true;
+ try{const j=await api('/api/model-settings',{provider:$('quickProvider').value,model:$('quickModelId').value});renderQuickModel(j);$('quickModelDialog').close();toast('已切换，下一轮对话生效');}
+ catch(error){$('quickModelStatus').textContent=error.message;}
+ finally{modelSwitchPending=false;$('quickModelApply').disabled=false;$('quickProvider').disabled=false;}
+};
+
+let modelProfiles = null;
+function showModelProfile(){
+  const name=$('modelProvider').value, p=modelProfiles.profiles[name], local=name==='local';
+  $('cloudModelFields').hidden=local;
+  $('modelBase').value=p.base_url; $('modelName').value=p.model;
+  fillModelPreset('modelPreset','modelName',name,p);
+  $('modelName').placeholder=local?'留空沿用本地默认角色模型':'填写平台控制台提供的准确模型 ID';
+  $('modelKey').value=''; $('modelClearKey').checked=false;
+  $('modelKey').placeholder=p.has_key?'已保存，留空保留；填写可替换':'填写 API 密钥';
+  $('modelPrivacy').textContent=local?'使用本地对话模型。':'启用后，本轮对话、相关记忆及工具结果会发送到此 API 地址。图片仍由本地视觉工具识别，识别结果可能随工具结果发送；原始语音继续在本机处理。';
+  $('modelFeedback').textContent='';
+}
+$('modelSettingsOpen').onclick=async()=>{
+  try{
+    const r=await fetch('/api/model-settings');const j=await r.json();
+    if(!r.ok)throw new Error(j.error||'读取失败');
+    modelProfiles=j; $('modelProvider').value=j.active;showModelProfile();
+    $('modelSettingsDialog').showModal();
+  }catch(e){toast(e.message);}
+};
+$('modelSettingsClose').onclick=()=>{$('modelKey').value='';$('modelSettingsDialog').close();};
+$('modelSettingsDialog').addEventListener('close',()=>{$('modelKey').value='';});
+$('modelProvider').onchange=showModelProfile;
+async function submitModelSettings(test){
+  const ids=['modelSave','modelTest','modelProvider','modelSettingsClose'];
+  ids.forEach(id=>$(id).disabled=true);
+  $('modelFeedback').textContent=test?'正在测试，最长约 30 秒…':'正在保存…';
+  try{
+    const body={provider:$('modelProvider').value,base_url:$('modelBase').value,
+      model:$('modelName').value,api_key:$('modelKey').value,clear_key:$('modelClearKey').checked};
+    if(test&&body.clear_key)throw new Error('清除密钥请使用保存按钮');
+    const j=await api(test?'/api/model-test':'/api/model-settings',body);
+    if(!test){modelProfiles=j;$('modelProvider').value=j.active;showModelProfile();renderQuickModel(j);await check();}
+    $('modelFeedback').textContent=test?j.message:'已保存。下一轮使用所选模型，语音设置保持不变。';
+  }catch(e){$('modelFeedback').textContent=e.message;}
+  finally{ids.forEach(id=>$(id).disabled=false);}
+}
+$('modelSettingsForm').onsubmit=e=>{e.preventDefault();void submitModelSettings(false);};
+$('modelTest').onclick=()=>void submitModelSettings(true);
 
 loadConfig().catch(e => toast('读取配置失败：' + e.message));
 // 8 秒探一次：后端被杀掉的话，页面对 CPU 状态、提示文字、背景恢复都能更快反应过来

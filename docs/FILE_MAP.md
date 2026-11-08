@@ -1,5 +1,15 @@
 # 文件索引
 
+权限与朗读：`app/agent_permissions.py` 管理三档权限、单次批准和工具限额解析；`docs/PERMISSIONS_AND_SPEECH.md` 说明批准边界、取消和完整重播规则。
+
+语音内存：`docs/VOICE_MEMORY.md` 说明启动检查点映射、重复加载跳过和识别按需加载；`scripts/test_voice_startup_memory.py` 检查加载钩子的恢复边界。
+
+眼部与刘海交界：`facial-rig.mjs` 先从原画提取发丝材质，再构建眼眶／眼睑；原眼眶的行跨度不能决定刘海归属。暖色发丝描边单独保护，远侧眼线与刘海的接触处设有归属边界，活动眼睑只保留眼线／眼白内容。`meimei-fringe-check.cjs` 对原画相连发丝区域进行实际GPU像素检查，覆盖半闭眼／闭眼／表情与极端头向，`--record` 输出五秒眨眼跟随近景。新版右闭眼轮廓更短、倾角更大；wink另一眼保持完全睁开。
+
+左右闭眼形状：`closed-eyes.mjs` 的 screenLeft／screenRight 分别绘制两眼弧线、鼻侧细眼角和外侧相连睫毛，不再通过水平镜像绘制同一条轮廓。`meimei-face-check.cjs` 增加闭眼墨迹镜像差异检查；近景仍需用户验收。
+
+闭眼参考重绘：`desktop-pet/renderer/closed-eyes.mjs` 绘制较平、较厚的闭眼轮廓和短睫毛，共用于眨眼／睡觉／单眼闭合。`facial-rig.mjs` 的 `clearOrbitalCrease` 在共享面部层移除两条棕色眼眶折线并采样附近肤色，睁眼时也不再出现；不加深这些折线。`meimei-face-check.cjs` 覆盖三个保留动作及50%／80%／90%闭合近景，输出完整闭眼立绘。
+
 2026-11-01：桌宠动作仅保留待机／点心／双手端杯。`renderer/state.mjs` 与 `electron/host-policy.cjs` 同步移除 F4，旧倾听偏好回退待机；`key-cloud.mjs` 使用梅梅青蓝色板，`settings.css` 统一映射卡片与快捷键提示配色。`settings-window-check.cjs` 验证三动作入口、快捷键与实际计算样式；`key-cloud-preview.cjs` 输出三动作青蓝按键预览。
 
 双手端杯：`renderer/grasp-binding.mjs` 的 `CUP_ART.base`／`SUPPORT_PALM.contact` 定义真实杯底和掌面；`daily-actions.mjs` 为端杯、抬杯和放杯提供双手目标，`puppet-art.mjs` 校准实际掌面接触并将头部跟随位移应用到两只手。`meimei-human-actions-check.cjs` 检查真实杯底接触和嘴部对应。
@@ -181,3 +191,12 @@ D1 英文：`voice/english_client.py`（本机子进程、缓存、故障回退�
 | `修复麦克风权限.bat` | Enables Windows microphone access required by the in-app voice input. |
 | `启动语音.ps1` | Starts GPT-SoVITS, the TTS adapter, and local ASR, then loads the selected weights. |
 | `启动阮梅.bat` | Windows launcher for the complete desktop application and backend services. |
+
+## 2026-11-02 模型 API 接入
+
+- `app/model_api.py`：服务配置、Windows DPAPI 密钥保存、OpenAI／DeepSeek／Claude 协议适配。
+- `app/agent_server.py`：每轮配置快照、配置／测试接口、共用人设与工具执行循环。
+- `app/agent.html`：顶栏「设置 → 模型与 API」配置面板、连接测试和状态提示。
+- `docs/MODEL_API.md`：填写步骤、数据范围、语音保留与验证边界。
+- `scripts/test_model_api.py`：凭据及协议／HTTP 回归；真实密钥文件 `app/model-api.local.json` 不入 Git。
+- `scripts/test_session_lifecycle.cjs`：新会话启动、空白过滤、唤醒临时会话、历史保留和上下文隔离的实际浏览器检查。

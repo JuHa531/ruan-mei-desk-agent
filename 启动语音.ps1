@@ -62,7 +62,11 @@ if (Test-Port 9882) {
     Write-Host "  [跳过] 语音识别 已在运行（9882）" -ForegroundColor Yellow
 } else {
     Write-Host "  [启动] 语音识别（9882，首次加载模型约 10 秒）"
-    Start-Process -FilePath $GsPython -ArgumentList $Asr, "--preload" `
+    # Recognition is independent of synthesis. Load it only when first used.
+    # Set RM_ASR_PRELOAD=1 to retain immediate first microphone recognition.
+    $AsrArgs = @($Asr)
+    if ($env:RM_ASR_PRELOAD -eq '1') { $AsrArgs += '--preload' }
+    Start-Process -FilePath $GsPython -ArgumentList $AsrArgs `
         -WorkingDirectory (Split-Path $Asr) -WindowStyle Hidden -RedirectStandardOutput "C:\Users\qqqqq\AppData\Local\Temp\rm_asr.log" -RedirectStandardError "C:\Users\qqqqq\AppData\Local\Temp\rm_asr.err"
 }
 
@@ -93,6 +97,17 @@ if ($ok9880 -and $UseFinetune) {
     $gpt = "GPT_weights_v2/ruanmei_refine_20261027-e10.ckpt"
     $sov = "GPT_SoVITS/pretrained_models/v2Pro/s2Gv2ProPlus.pth"
     foreach ($pair in @(@('GPT', $gpt), @('SoVITS', $sov))) {
+        # Keep already-loaded weights resident instead of loading them twice.
+        try {
+            $health = Invoke-RestMethod -Uri 'http://127.0.0.1:9880/healthz' -TimeoutSec 10
+            $weightKey = $pair[0].ToLower()
+            $loadedPath = $health.weights.$weightKey
+            $wantedPath = [System.IO.Path]::GetFullPath((Join-Path $GsRoot $pair[1]))
+            if ($loadedPath -and ([System.IO.Path]::GetFullPath($loadedPath) -eq $wantedPath)) {
+                Write-Host ("  [OK] $($pair[0]) weights already loaded") -ForegroundColor Green
+                continue
+            }
+        } catch { }
         $enc = [uri]::EscapeDataString($pair[1])
         $done = $false
         # 服务刚起来时接口还不能用，多试几次（最多约 1 分钟）

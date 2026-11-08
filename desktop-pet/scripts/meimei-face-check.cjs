@@ -14,11 +14,21 @@ const server=createServer((req,res)=>{
    const{loadCharacter,composeCharacterFrame}=await import('./faithful-character.mjs'),{createFacialLayers,facialTarget}=await import('./facial-rig.mjs');
    const rig=await loadCharacter(),canvas=document.createElement('canvas'),read=document.createElement('canvas');canvas.width=1000;canvas.height=1700;read.width=1090;read.height=1443;
    const ctx=canvas.getContext('2d'),rc=read.getContext('2d',{willReadFrequently:true}),result={poses:{},closeups:{}};
-   const cases=[['original',null,0,0],['neutral',null,0,0],['down',null,1,0],['down 200%',null,1,0],['up',null,-1,0],['angry','angry',1,0],['smile','smile',0,0],['wink','wink',0,0],['blink half',null,0,.5],['closed',null,0,1],['surprise','surprise',0,0]];
-   for(const[poseIndex,pose]of['idle','megaphone','cake','tea'].entries()){
+   const cases=[['original',null,0,0],['neutral',null,0,0],['down',null,1,0],['down 200%',null,1,0],['up',null,-1,0],['angry','angry',1,0],['smile','smile',0,0],['wink','wink',0,0],['blink half',null,0,.5],['blink 80%',null,0,.8],['blink 90%',null,0,.9],['closed',null,0,1],['sleep','sleep',0,0],['surprise','surprise',0,0]];
+   canvas.height=cases.length*76*2;
+   for(const[poseIndex,pose]of['idle','cake','tea'].entries()){
     const source=composeCharacterFrame(rig.images,{pose}),layers=createFacialLayers(source),original=source.getContext('2d').getImageData(0,0,1090,1443).data;
     const fg=layers.iris.getContext('2d').getImageData(0,0,1090,1443).data,mask=layers.mask.getContext('2d').getImageData(0,0,1090,1443).data;
     result.poses[pose]={caps:[],neutralError:0,downCapPixels:[]};
+    const closed=layers.closed.getContext('2d').getImageData(0,0,1090,1443).data;
+    let mirrorDifference=0,inkUnion=0;
+    for(let dy=-24;dy<=28;dy++)for(let dx=-82;dx<=82;dx++){
+     const a=(Math.round(layers.eyes[0][1]+dy)*1090+Math.round(layers.eyes[0][0]+dx))*4;
+     const b=(Math.round(layers.eyes[1][1]+dy)*1090+Math.round(layers.eyes[1][0]-dx))*4;
+     const left=closed[a+3]>128,right=closed[b+3]>128;
+     if(left||right)inkUnion++;if(left!==right)mirrorDifference++;
+    }
+    result.poses[pose].closedMirrorMismatch=mirrorDifference/Math.max(1,inkUnion);
     for(const[cx,cy]of layers.eyes){
      let first=-1;const x=Math.round(cx);
      for(let y=Math.floor(cy-60);y<cy+30;y++){const p=(y*1090+x)*4;if(fg[p+3]>240&&mask[p+3]){first=y;break;}}
@@ -29,7 +39,7 @@ const server=createServer((req,res)=>{
      const state={pose,expression,gaze:{x:0,y:gy},head:{x:0,y:0},time:0,blink,facial:facialTarget(expression)};
      const image=label==='original'?source:rig.mesh.draw(source,pose,state,{hairMotion:false,headTracking:false,eyeWarpStrength:label==='down 200%'?2:1});
      rc.clearRect(0,0,1090,1443);rc.drawImage(image,0,0);const pixels=rc.getImageData(0,0,1090,1443).data;
-     if(pose==='idle'&&['neutral','closed','angry','down 200%'].includes(label)){
+     if(pose==='idle'&&['neutral','closed','angry','down 200%','wink','sleep','blink half','blink 80%','blink 90%'].includes(label)){
       const close=document.createElement('canvas');close.width=920;close.height=370;close.getContext('2d').drawImage(read,290,395,460,185,0,0,920,370);result.closeups[label]=close.toDataURL();
      }
      if(label==='neutral'){
@@ -40,7 +50,7 @@ const server=createServer((req,res)=>{
       const x=Math.round(cx);let first=-1;for(let y=Math.floor(cy-60);y<cy+30;y++){const p=(y*1090+x)*4;if(fg[p+3]>240&&mask[p+3]){first=y;break;}}
       result.poses[pose].downCapPixels.push(Array.from(pixels.slice(((first+1)*1090+x)*4,((first+1)*1090+x)*4+4)));
      }
-     const left=poseIndex%2*500,top=Math.floor(poseIndex/2)*850+index*76;
+     const left=poseIndex%2*500,top=Math.floor(poseIndex/2)*cases.length*76+index*76;
      ctx.fillStyle='#edf3ef';ctx.fillRect(left,top,500,76);ctx.fillStyle='#12352c';ctx.font='12px sans-serif';ctx.fillText(`${pose} · ${label}`,left+4,top+13);
      ctx.drawImage(read,290,395,460,185,left+180,top+2,312,72);
     }
@@ -50,7 +60,10 @@ const server=createServer((req,res)=>{
   fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'meimei-face-check.png'),Buffer.from(report.contactSheet.split(',')[1],'base64'));delete report.contactSheet;
   for(const[name,data]of Object.entries(report.closeups))fs.writeFileSync(path.join(out,'face-'+name.replaceAll(' ','-')+'.png'),Buffer.from(data.split(',')[1],'base64'));delete report.closeups;
   fs.writeFileSync(path.join(out,'meimei-face-check.json'),JSON.stringify(report,null,2));
+  const portrait=await page.evaluate(()=>window.ruanmeiPreview.render({pose:'idle',blink:1,resolutionScale:2}));
+  fs.writeFileSync(path.join(out,'meimei-closed-portrait.png'),Buffer.from(portrait.split(',')[1],'base64'));
   for(const[pose,values]of Object.entries(report.poses)){
+   assert.ok(values.closedMirrorMismatch>.1,`${pose}: closed eyes must have separate silhouettes, not mirrored copies`);
    assert.ok(values.neutralError<2.5,`${pose}: original neutral face must be retained (${values.neutralError})`);
    assert.ok(values.caps.every(n=>n>=10),`${pose}: hidden upper iris must be complete (${values.caps})`);
    assert.ok(values.downCapPixels.every(p=>p[0]<185&&p[3]===255),`${pose}: looking down must not expose a white/transparent gap`);

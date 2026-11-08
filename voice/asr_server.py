@@ -115,7 +115,7 @@ class Handler(LocalRequestHandler):
 
     def do_GET(self):
         if self.path.split("?")[0] == "/healthz":
-            self._json({"ok": _model is not None, "model": "iic/SenseVoiceSmall"})
+            self._json({"ok": True, "loaded": _model is not None, "model": "iic/SenseVoiceSmall"})
         else:
             self._json({"error": "not found"}, 404)
 

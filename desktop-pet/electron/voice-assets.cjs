@@ -11,7 +11,7 @@ function loadVoiceAssets(root, directory = path.join(root, 'assets', 'voice')) {
   try {
     catalog = JSON.parse(fs.readFileSync(path.join(root, 'renderer', 'voice-catalog.json'), 'utf8'));
     const map = JSON.parse(fs.readFileSync(path.join(directory, 'final-audio-map.json'), 'utf8'));
-    if (map.status!=='generated' || map.generatedBy!=='meimei-local-tts' || map.generatedCount !== 36 || map.lines?.length !== 36) throw new Error('需要完整的 36 句本机阮梅语音。');
+    if (map.status!=='generated' || map.generatedBy!=='meimei-local-tts' || map.generatedCount !== 36 || map.lines?.length !== 36) throw new Error('需要完整的 36 句本机阮·梅语音。');
     for (const line of map.lines) {
       if (!/^(0[1-9]|1[0-2])-[1-3]$/.test(line.id) || lines.has(line.id)
         || line.currentPath !== `audio-final/${line.id}.wav`) throw new Error('录音映射无效。');
@@ -51,7 +51,7 @@ function loadInteractionAssets(root, directory = path.join(root, 'assets', 'inte
     const map = JSON.parse(fs.readFileSync(path.join(directory, 'final-audio-map.json'), 'utf8'));
     if (map?.status !== 'generated' || map?.generatedBy !== 'meimei-local-tts') throw new Error('互动语音需要由本机梅梅生成。');
     if (map.generatedCount !== expected.size || !Array.isArray(map.lines) || map.lines.length !== expected.size) {
-      throw new Error('需要完整的 18 句本机阮梅互动语音。');
+      throw new Error('需要完整的 18 句本机阮·梅互动语音。');
     }
     for (const line of map.lines) {
       if (!line || !expected.has(line.id) || lines.has(line.id)

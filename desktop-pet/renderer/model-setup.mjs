@@ -123,7 +123,7 @@ async function initializeVoiceSetup() {
     const phase = state?.phase || 'idle', busy = state?.busy === true, ready = phase === 'ready' && state?.ready === true;
     badge.textContent = phase === 'ready' && !ready ? '未完成' : labels[phase] || '配置中';
     status.textContent = phase === 'ready' && !ready ? '语音环境尚未确认就绪。' : messages[phase] || '正在配置语音环境…';
-    description.textContent = '复用梅梅现有的阮梅音色和中英文语音设置，点击检测可查看服务是否就绪。';
+    description.textContent = '复用梅梅现有的阮·梅音色和中英文语音设置，点击检测可查看服务是否就绪。';
     install.hidden = ready; install.disabled = !state || pending || busy;
     install.textContent = busy ? '正在配置…' : ['error', 'cancelled', 'needs-install'].includes(phase) ? '重试配置' : '准备语音环境';
     cancel.hidden = !busy; cancel.disabled = pending || !state?.canCancel;

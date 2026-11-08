@@ -23,7 +23,7 @@ function createChatWindow({ BrowserWindow, screen, root, icon, isSmokeTest = fal
       const display = lastBounds ? screen.getDisplayMatching(lastBounds) : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
       const window = new BrowserWindow({
         ...settingsWindowBounds(display.workArea, lastBounds ?? { width: 540, height: 680 }),
-        title: '阮梅 · 聊天', icon, show: false, frame: false, roundedCorners: true, thickFrame: true,
+        title: '阮·梅 · 聊天', icon, show: false, frame: false, roundedCorners: true, thickFrame: true,
         transparent: false, backgroundColor: '#fffafc', resizable: true, movable: true,
         minimizable: true, maximizable: true, fullscreenable: false, skipTaskbar: false,
         alwaysOnTop: false, autoHideMenuBar: true,

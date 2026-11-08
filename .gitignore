@@ -41,3 +41,9 @@ app/assets/*.mp4
 out.wav
 *.tmp
 *.bak
+
+# Windows-encrypted model API credentials
+app/model-api.local.json
+
+app/permissions.local.json
+app/permissions.local.tmp
